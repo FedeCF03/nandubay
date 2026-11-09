@@ -1,14 +1,18 @@
 import { Link } from 'wouter'
 import { ArrowRight } from 'lucide-react'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { navegacion } from '@/layout/navegacion'
+import { useUsuario } from '@/auth/sesion'
+import { visiblesPara } from '@/layout/navegacion'
 
 export default function Inicio() {
-  const accesos = navegacion.flatMap((g) => g.items).filter((i) => i.ruta !== '/')
+  const u = useUsuario()
+  const accesos = visiblesPara(u.permisos).flatMap((g) => g.items).filter((i) => i.ruta !== '/')
+  const hora = new Date().getHours()
+  const saludo = hora < 6 ? 'Buenas noches' : hora < 13 ? 'Buen día' : hora < 20 ? 'Buenas tardes' : 'Buenas noches'
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight">Buen día</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">{saludo}, {u.nombre.split(' ')[0]}</h2>
         <p className="text-muted-foreground">¿Qué hacemos hoy en el taller?</p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
