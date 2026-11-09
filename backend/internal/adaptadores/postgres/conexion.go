@@ -1,5 +1,6 @@
-// Package db maneja la conexión a Postgres y el aislamiento por carpintería.
-package db
+// Package postgres implementa los repositorios de la capa de aplicación con
+// PostgreSQL, y maneja la conexión, las migraciones y el aislamiento por carpintería.
+package postgres
 
 import (
 	"context"
@@ -41,10 +42,14 @@ func Migrar(pool *pgxpool.Pool) error {
 // Todo acceso a datos de una carpintería tiene que pasar por acá.
 func EnCarpinteria(ctx context.Context, pool *pgxpool.Pool, carpinteriaID int64, fn func(pgx.Tx) error) error {
 	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, "SELECT set_config('app.carpinteria_id', $1, true)",
-			strconv.FormatInt(carpinteriaID, 10)); err != nil {
+		if err := fijarCarpinteria(ctx, tx, carpinteriaID); err != nil {
 			return err
 		}
 		return fn(tx)
 	})
+}
+
+func fijarCarpinteria(ctx context.Context, tx pgx.Tx, carpinteriaID int64) error {
+	_, err := tx.Exec(ctx, "SELECT set_config('app.carpinteria_id', $1, true)", strconv.FormatInt(carpinteriaID, 10))
+	return err
 }

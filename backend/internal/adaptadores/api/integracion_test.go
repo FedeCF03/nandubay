@@ -1,4 +1,4 @@
-package httpapi
+package api
 
 import (
 	"bytes"
@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FedeCF03/nandubay/backend/internal/auth"
-	"github.com/FedeCF03/nandubay/backend/internal/db"
+	"github.com/FedeCF03/nandubay/backend/internal/adaptadores/postgres"
+	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
+	"github.com/FedeCF03/nandubay/backend/internal/plataforma/seguridad"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -30,7 +32,7 @@ func baseDePrueba(t *testing.T) *pgxpool.Pool {
 		t.Skip("NANDUBAY_TEST_DB no está definida")
 	}
 	ctx := context.Background()
-	pool, err := db.Conectar(ctx, url)
+	pool, err := postgres.Conectar(ctx, url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +47,7 @@ func baseDePrueba(t *testing.T) *pgxpool.Pool {
 	if _, err := pool.Exec(ctx, "DROP SCHEMA public CASCADE; CREATE SCHEMA public"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Migrar(pool); err != nil {
+	if err := postgres.Migrar(pool); err != nil {
 		t.Fatal(err)
 	}
 	return pool
@@ -82,18 +84,21 @@ func (c *cliente) pedir(metodo, ruta string, cuerpo any) (int, map[string]any) {
 	return res.StatusCode, out
 }
 
-func preparar(t *testing.T) (*pgxpool.Pool, *auth.Servicio, *httptest.Server) {
+// Bcrypt con costo mínimo para que los tests sean rápidos.
+var hasher = &seguridad.Bcrypt{Costo: 4}
+
+func preparar(t *testing.T) (*pgxpool.Pool, *aplicacion.ServicioAcceso, *httptest.Server) {
 	pool := baseDePrueba(t)
-	svc := &auth.Servicio{DB: pool}
-	s := &Servidor{DB: pool, Auth: svc, Limitador: auth.NuevoLimitador(5, time.Minute)}
+	svc := &aplicacion.ServicioAcceso{Repo: &postgres.RepoAcceso{DB: pool}, Hasher: hasher, Tokens: seguridad.Tokens{}}
+	s := &Servidor{Acceso: svc, Cortes: aplicacion.ServicioCortes{}, Salud: pool.Ping, Limitador: NuevoLimitador(5, time.Minute)}
 	srv := httptest.NewServer(s.Router())
 	t.Cleanup(srv.Close)
 	return pool, svc, srv
 }
 
-func crear(t *testing.T, svc *auth.Servicio, nombre, email string) int64 {
+func crear(t *testing.T, svc *aplicacion.ServicioAcceso, nombre, email string) int64 {
 	t.Helper()
-	id, err := svc.CrearCarpinteria(context.Background(), auth.NuevaCarpinteria{
+	id, err := svc.CrearCarpinteria(context.Background(), aplicacion.NuevaCarpinteria{
 		Nombre: nombre, AdminNombre: "Admin " + nombre, AdminEmail: email, AdminClave: "clave-segura",
 	})
 	if err != nil {
@@ -105,8 +110,8 @@ func crear(t *testing.T, svc *auth.Servicio, nombre, email string) int64 {
 // agregarUsuario crea un usuario con un rol base, en todas las sucursales.
 func agregarUsuario(t *testing.T, pool *pgxpool.Pool, carpinteriaID int64, email, rol string) {
 	t.Helper()
-	hash, _ := auth.HashClave("clave-segura")
-	err := db.EnCarpinteria(context.Background(), pool, carpinteriaID, func(tx pgx.Tx) error {
+	hash, _ := hasher.Hash("clave-segura")
+	err := postgres.EnCarpinteria(context.Background(), pool, carpinteriaID, func(tx pgx.Tx) error {
 		var uid int64
 		if err := tx.QueryRow(context.Background(),
 			`INSERT INTO usuarios (carpinteria_id, email, nombre, password_hash) VALUES ($1,$2,$2,$3) RETURNING id`,
@@ -173,10 +178,10 @@ func TestPermisosPorSucursal(t *testing.T) {
 	pool, svc, srv := preparar(t)
 	id := crear(t, svc, "Carpintería López", "juan@ejemplo.com")
 	ctx := context.Background()
-	hash, _ := auth.HashClave("clave-segura")
+	hash, _ := hasher.Hash("clave-segura")
 	var norte, centro int64
 	// Vendedor solo en la sucursal Norte.
-	err := db.EnCarpinteria(ctx, pool, id, func(tx pgx.Tx) error {
+	err := postgres.EnCarpinteria(ctx, pool, id, func(tx pgx.Tx) error {
 		tx.QueryRow(ctx, `SELECT id FROM sucursales`).Scan(&centro)
 		tx.QueryRow(ctx, `INSERT INTO sucursales (carpinteria_id, nombre) VALUES ($1, 'Norte') RETURNING id`, id).Scan(&norte)
 		var uid int64
@@ -204,20 +209,20 @@ func TestAislamientoEntreCarpinterias(t *testing.T) {
 	a := crear(t, svc, "A", "a@ejemplo.com")
 	b := crear(t, svc, "B", "b@ejemplo.com")
 	ctx := context.Background()
-	if err := db.EnCarpinteria(ctx, pool, b, func(tx pgx.Tx) error {
+	if err := postgres.EnCarpinteria(ctx, pool, b, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO clientes (carpinteria_id, nombre) VALUES ($1, 'Cliente de B')`, b)
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
 	var n int
-	_ = db.EnCarpinteria(ctx, pool, a, func(tx pgx.Tx) error {
+	_ = postgres.EnCarpinteria(ctx, pool, a, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT count(*) FROM clientes`).Scan(&n)
 	})
 	if n != 0 {
 		t.Fatalf("A no debería ver clientes de B, ve %d", n)
 	}
-	err := db.EnCarpinteria(ctx, pool, a, func(tx pgx.Tx) error {
+	err := postgres.EnCarpinteria(ctx, pool, a, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `INSERT INTO clientes (carpinteria_id, nombre) VALUES ($1, 'Intruso')`, b)
 		return err
 	})
@@ -225,8 +230,8 @@ func TestAislamientoEntreCarpinterias(t *testing.T) {
 		t.Fatal("A no debería poder escribir datos de B")
 	}
 	// El email es único en todo el sistema.
-	_, err = svc.CrearCarpinteria(ctx, auth.NuevaCarpinteria{Nombre: "C", AdminNombre: "x", AdminEmail: "A@ejemplo.com", AdminClave: "clave-segura"})
-	if err != auth.ErrEmailEnUso {
+	_, err = svc.CrearCarpinteria(ctx, aplicacion.NuevaCarpinteria{Nombre: "C", AdminNombre: "x", AdminEmail: "A@ejemplo.com", AdminClave: "clave-segura"})
+	if err != acceso.ErrEmailEnUso {
 		t.Fatalf("esperaba ErrEmailEnUso, obtuve %v", err)
 	}
 }

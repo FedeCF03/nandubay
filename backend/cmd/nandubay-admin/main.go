@@ -15,8 +15,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/FedeCF03/nandubay/backend/internal/auth"
-	"github.com/FedeCF03/nandubay/backend/internal/db"
+	"github.com/FedeCF03/nandubay/backend/internal/adaptadores/postgres"
+	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
+	"github.com/FedeCF03/nandubay/backend/internal/plataforma/seguridad"
 )
 
 func main() {
@@ -39,17 +40,20 @@ func main() {
 	}
 
 	ctx := context.Background()
-	pool, err := db.Conectar(ctx, os.Getenv("DATABASE_URL"))
+	pool, err := postgres.Conectar(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
-	if err := db.Migrar(pool); err != nil {
+	if err := postgres.Migrar(pool); err != nil {
 		fmt.Fprintln(os.Stderr, "error en migraciones:", err)
 		os.Exit(1)
 	}
-	id, err := (&auth.Servicio{DB: pool}).CrearCarpinteria(ctx, auth.NuevaCarpinteria{
+	casos := &aplicacion.ServicioAcceso{
+		Repo: &postgres.RepoAcceso{DB: pool}, Hasher: &seguridad.Bcrypt{}, Tokens: seguridad.Tokens{},
+	}
+	id, err := casos.CrearCarpinteria(ctx, aplicacion.NuevaCarpinteria{
 		Nombre: *nombre, Sucursal: *sucursal, AdminNombre: *adminNombre, AdminEmail: *adminEmail, AdminClave: clave,
 	})
 	if err != nil {

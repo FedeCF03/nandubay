@@ -1,22 +1,39 @@
-// Package httpapi expone la API HTTP.
-package httpapi
+// Package api es el adaptador HTTP: traduce pedidos HTTP a casos de uso de la
+// capa de aplicación y sus resultados a JSON. No tiene reglas de negocio.
+package api
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/FedeCF03/nandubay/backend/internal/auth"
-	"github.com/FedeCF03/nandubay/backend/internal/cortes"
+	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/cortes"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// CasosAcceso son los casos de uso de login y sesiones que usa la API.
+type CasosAcceso interface {
+	Login(ctx context.Context, email, clave, ip, agente string) (string, error)
+	Logout(ctx context.Context, token string) error
+	Autenticar(ctx context.Context, token string) (*acceso.Usuario, error)
+	ElegirSucursal(ctx context.Context, u *acceso.Usuario, token string, sucursalID int64) error
+}
+
+// CasosCortes son los casos de uso del optimizador.
+type CasosCortes interface {
+	Optimizar(p cortes.Parametros, piezas []cortes.Pieza, mermaCantoMM int) (aplicacion.PlanCortes, error)
+}
+
 type Servidor struct {
-	DB           *pgxpool.Pool
-	Auth         *auth.Servicio
-	Limitador    *auth.Limitador
+	Acceso       CasosAcceso
+	Cortes       CasosCortes
+	Salud        func(context.Context) error // ej: ping a la base
+	Limitador    *Limitador
 	CORSOrigen   string
 	CookieSegura bool
 }
@@ -44,41 +61,13 @@ func (s *Servidor) Router() http.Handler {
 }
 
 func (s *Servidor) salud(w http.ResponseWriter, r *http.Request) {
-	if err := s.DB.Ping(r.Context()); err != nil {
-		responderError(w, http.StatusServiceUnavailable, "la base de datos no responde")
-		return
+	if s.Salud != nil {
+		if err := s.Salud(r.Context()); err != nil {
+			responderError(w, http.StatusServiceUnavailable, "la base de datos no responde")
+			return
+		}
 	}
 	responderJSON(w, http.StatusOK, map[string]string{"estado": "ok"})
-}
-
-type pedidoOptimizar struct {
-	Parametros   cortes.Parametros `json:"parametros"`
-	Piezas       []cortes.Pieza    `json:"piezas"`
-	MermaCantoMM int               `json:"merma_canto_mm"`
-}
-
-type respuestaOptimizar struct {
-	cortes.Resultado
-	MetrosCanto float64 `json:"metros_canto"`
-}
-
-// optimizarCortes calcula un plan sin guardarlo. Más adelante se suma la
-// versión que lee las piezas de un pedido y guarda el plan.
-func (s *Servidor) optimizarCortes(w http.ResponseWriter, r *http.Request) {
-	var p pedidoOptimizar
-	if !leerJSON(w, r, &p) {
-		return
-	}
-	if len(p.Piezas) == 0 {
-		responderError(w, http.StatusBadRequest, "no hay piezas para cortar")
-		return
-	}
-	res, err := cortes.Optimizar(p.Parametros, p.Piezas)
-	if err != nil {
-		responderError(w, http.StatusUnprocessableEntity, err.Error())
-		return
-	}
-	responderJSON(w, http.StatusOK, respuestaOptimizar{res, cortes.MetrosCanto(p.Piezas, p.MermaCantoMM)})
 }
 
 func (s *Servidor) cors(next http.Handler) http.Handler {
@@ -97,6 +86,14 @@ func (s *Servidor) cors(next http.Handler) http.Handler {
 	})
 }
 
+func leerJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(v); err != nil {
+		responderError(w, http.StatusBadRequest, "JSON inválido")
+		return false
+	}
+	return true
+}
+
 func responderJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -105,4 +102,9 @@ func responderJSON(w http.ResponseWriter, status int, v any) {
 
 func responderError(w http.ResponseWriter, status int, msg string) {
 	responderJSON(w, status, map[string]string{"error": msg})
+}
+
+func errorInterno(w http.ResponseWriter, r *http.Request, err error) {
+	slog.ErrorContext(r.Context(), "error interno", "ruta", r.URL.Path, "error", err)
+	responderError(w, http.StatusInternalServerError, "algo salió mal, probá de nuevo")
 }

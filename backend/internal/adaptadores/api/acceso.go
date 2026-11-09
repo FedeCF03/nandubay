@@ -1,15 +1,14 @@
-package httpapi
+package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 
-	"github.com/FedeCF03/nandubay/backend/internal/auth"
+	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
 )
 
 const cookieSesion = "nandubay_sesion"
@@ -17,25 +16,21 @@ const cookieSesion = "nandubay_sesion"
 type claveCtx struct{}
 
 // UsuarioDe devuelve el usuario autenticado de la petición.
-func UsuarioDe(ctx context.Context) *auth.Usuario {
-	u, _ := ctx.Value(claveCtx{}).(*auth.Usuario)
+func UsuarioDe(ctx context.Context) *acceso.Usuario {
+	u, _ := ctx.Value(claveCtx{}).(*acceso.Usuario)
 	return u
 }
 
 // requiereSesion corta con 401 si no hay una sesión válida.
 func (s *Servidor) requiereSesion(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var token string
-		if c, err := r.Cookie(cookieSesion); err == nil {
-			token = c.Value
-		}
-		u, err := s.Auth.Autenticar(r.Context(), token)
-		if errors.Is(err, auth.ErrSinSesion) {
+		u, err := s.Acceso.Autenticar(r.Context(), tokenDe(r))
+		if errors.Is(err, acceso.ErrSinSesion) {
 			responderError(w, http.StatusUnauthorized, "tenés que iniciar sesión")
 			return
 		}
 		if err != nil {
-			s.errorInterno(w, r, err)
+			errorInterno(w, r, err)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claveCtx{}, u)))
@@ -87,28 +82,28 @@ func (s *Servidor) login(w http.ResponseWriter, r *http.Request) {
 		responderError(w, http.StatusTooManyRequests, "demasiados intentos, esperá unos minutos")
 		return
 	}
-	token, err := s.Auth.Login(r.Context(), p.Email, p.Clave, ip, r.UserAgent())
-	if errors.Is(err, auth.ErrCredenciales) {
+	token, err := s.Acceso.Login(r.Context(), p.Email, p.Clave, ip, r.UserAgent())
+	if errors.Is(err, acceso.ErrCredenciales) {
 		responderError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 	if err != nil {
-		s.errorInterno(w, r, err)
+		errorInterno(w, r, err)
 		return
 	}
 	s.Limitador.Limpiar(ip)
 	http.SetCookie(w, &http.Cookie{
 		Name: cookieSesion, Value: token, Path: "/",
-		MaxAge: int(auth.DuracionSesion.Seconds()), HttpOnly: true,
+		MaxAge: int(aplicacion.DuracionSesion.Seconds()), HttpOnly: true,
 		Secure: s.CookieSegura, SameSite: http.SameSiteLaxMode,
 	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Servidor) logout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(cookieSesion); err == nil {
-		if err := s.Auth.Logout(r.Context(), c.Value); err != nil {
-			s.errorInterno(w, r, err)
+	if t := tokenDe(r); t != "" {
+		if err := s.Acceso.Logout(r.Context(), t); err != nil {
+			errorInterno(w, r, err)
 			return
 		}
 	}
@@ -119,14 +114,23 @@ func (s *Servidor) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-type respuestaYo struct {
-	*auth.Usuario
-	Permisos []string `json:"permisos"`
+// usuarioJSON es cómo se muestra el usuario hacia afuera.
+type usuarioJSON struct {
+	ID            int64             `json:"id"`
+	Nombre        string            `json:"nombre"`
+	Email         string            `json:"email"`
+	CarpinteriaID int64             `json:"carpinteria_id"`
+	Carpinteria   string            `json:"carpinteria"`
+	SucursalID    int64             `json:"sucursal_id"`
+	Sucursales    []acceso.Sucursal `json:"sucursales"`
+	Permisos      []string          `json:"permisos"`
 }
 
 func (s *Servidor) yo(w http.ResponseWriter, r *http.Request) {
 	u := UsuarioDe(r.Context())
-	responderJSON(w, http.StatusOK, respuestaYo{u, u.Permisos.Lista()})
+	responderJSON(w, http.StatusOK, usuarioJSON{
+		u.ID, u.Nombre, u.Email, u.CarpinteriaID, u.Carpinteria, u.SucursalID, u.Sucursales, u.Permisos.Lista(),
+	})
 }
 
 func (s *Servidor) elegirSucursal(w http.ResponseWriter, r *http.Request) {
@@ -136,24 +140,23 @@ func (s *Servidor) elegirSucursal(w http.ResponseWriter, r *http.Request) {
 	if !leerJSON(w, r, &p) {
 		return
 	}
-	err := s.Auth.ElegirSucursal(r.Context(), UsuarioDe(r.Context()), p.SucursalID)
-	if errors.Is(err, auth.ErrSinSucursal) {
+	err := s.Acceso.ElegirSucursal(r.Context(), UsuarioDe(r.Context()), tokenDe(r), p.SucursalID)
+	if errors.Is(err, acceso.ErrSinSucursal) {
 		responderError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	if err != nil {
-		s.errorInterno(w, r, err)
+		errorInterno(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func leerJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(v); err != nil {
-		responderError(w, http.StatusBadRequest, "JSON inválido")
-		return false
+func tokenDe(r *http.Request) string {
+	if c, err := r.Cookie(cookieSesion); err == nil {
+		return c.Value
 	}
-	return true
+	return ""
 }
 
 // ipDe usa la IP que dejó middleware.RealIP (Caddy manda X-Forwarded-For).
@@ -162,9 +165,4 @@ func ipDe(r *http.Request) string {
 		return h
 	}
 	return r.RemoteAddr
-}
-
-func (s *Servidor) errorInterno(w http.ResponseWriter, r *http.Request, err error) {
-	slog.ErrorContext(r.Context(), "error interno", "ruta", r.URL.Path, "error", err)
-	responderError(w, http.StatusInternalServerError, "algo salió mal, probá de nuevo")
 }

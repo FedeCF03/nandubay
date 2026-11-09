@@ -20,20 +20,70 @@
 
 ## Arquitectura
 
+Monolito modular con **clean architecture** en el backend:
+
 ```
 Navegador (React SPA)
       │ HTTPS
    Caddy ── sirve el frontend compilado
       │ /api/*
-   API Go (chi, pgx) ── optimizador de cortes (internal/cortes)
-      │
-   PostgreSQL (Row Level Security por carpintería)
+   API Go ── PostgreSQL (Row Level Security por carpintería)
 ```
 
+### Capas del backend
+
+```
+backend/
+├── cmd/                       Arranque: arma las capas y las conecta
+│   ├── api/                   Servidor HTTP
+│   └── nandubay-admin/        Comandos de administración
+├── internal/
+│   ├── dominio/               Entidades y reglas de negocio puras
+│   │   ├── acceso/            Usuarios, sucursales, permisos, roles base
+│   │   └── cortes/            Optimizador de cortes y metros de canto
+│   ├── aplicacion/            Casos de uso y puertos (interfaces)
+│   │   ├── puertos.go         Lo que la aplicación necesita del exterior
+│   │   ├── acceso.go          Login, sesiones, alta de carpinterías
+│   │   └── cortes.go          Optimizar cortes
+│   ├── adaptadores/           Implementan los puertos o exponen los casos de uso
+│   │   ├── api/               HTTP: rutas, sesión, permisos, JSON
+│   │   └── postgres/          Repositorios, conexión, migraciones, RLS
+│   └── plataforma/            Detalles técnicos
+│       ├── config/            Variables de entorno
+│       └── seguridad/         bcrypt y tokens de sesión
+└── migrations/                SQL versionado (goose)
+```
+
+**Regla de dependencias**: cada capa solo conoce a las de adentro.
+
+- `dominio` no importa nada del proyecto ni librerías externas.
+- `aplicacion` importa solo `dominio`. Habla con la base, el hash de
+  contraseñas, etc. a través de interfaces (`RepositorioAcceso`, `Hasher`, `Tokens`).
+- `adaptadores` y `plataforma` implementan esas interfaces.
+- `cmd` es el único lugar que conoce todo y arma las piezas.
+
+`arquitectura_test.go` controla esta regla: si alguien importa pgx o el
+adaptador HTTP desde el dominio o la aplicación, el test falla.
+
+**Tests por capa**
+
+- Dominio: tests unitarios puros (optimizador, resolución de permisos).
+- Aplicación: tests con dobles en memoria, sin Postgres.
+- Adaptadores: tests de integración contra Postgres real (`NANDUBAY_TEST_DB`).
+
+**Cómo sumar un módulo nuevo** (por ejemplo stock):
+
+1. `dominio/stock`: entidades (Producto, Movimiento) y reglas.
+2. `aplicacion/stock.go`: casos de uso y el puerto `RepositorioStock` en `puertos.go`.
+3. `adaptadores/postgres/repo_stock.go`: implementación con SQL.
+4. `adaptadores/api/stock.go`: rutas HTTP con su permiso.
+5. Conectarlo en `cmd/api/main.go`.
+
+### Otras decisiones
+
 - **Aislamiento entre carpinterías**: todas las tablas de datos tienen
-  `carpinteria_id` y una política RLS. La API abre cada transacción con
-  `db.EnCarpinteria(...)`, que fija `app.carpinteria_id`; Postgres filtra el resto.
-  Si un handler se olvida un `WHERE`, igual no puede ver datos de otra carpintería.
+  `carpinteria_id` y una política RLS. Los repositorios abren cada transacción con
+  `postgres.EnCarpinteria(...)`, que fija `app.carpinteria_id`; Postgres filtra el resto.
   La API se conecta con un usuario sin superusuario (los superusuarios se saltean RLS).
 - **Medidas** en milímetros enteros. En las placas, `largo` es el sentido de la veta.
 - **Stock**: la tabla `stock` guarda el saldo por depósito y `stock_movimientos`
@@ -70,7 +120,7 @@ guardan las piezas concretas en `piezas`. Así se pueden retocar a mano.
 
 ## Optimizador de cortes
 
-`backend/internal/cortes`. Algoritmo guillotina con "mejor ajuste por área":
+`backend/internal/dominio/cortes`. Algoritmo guillotina con "mejor ajuste por área":
 
 1. Expande las piezas por cantidad y las ordena de mayor a menor.
 2. Para cada pieza busca, entre las placas ya abiertas, el hueco libre donde sobra
@@ -94,7 +144,7 @@ cortes para el operario, y guardar el plan en `planes_corte` desde un pedido.
 3. Pedidos y muebles modelo con cálculo de fórmulas.
 4. Guardar planes de corte y generar retazos.
 5. Estadísticas.
-6. Consultas con sqlc y tipos del frontend generados desde OpenAPI.
+6. Tipos del frontend generados desde OpenAPI.
 
 ## Login y permisos
 
@@ -113,6 +163,7 @@ cortes para el operario, y guardar el plan en `planes_corte` desde un pedido.
 - **Permisos por sucursal**: la sesión guarda la sucursal elegida. Los permisos
   salen de los roles del usuario en esa sucursal más los roles sin sucursal.
   Cada endpoint declara el permiso que necesita (`requierePermiso("cortes.generar")`).
+  La regla de qué permisos aplican en cada sucursal está en `dominio/acceso`.
 - **Alta de carpinterías**: por ahora con `nandubay-admin crear-carpinteria`,
   que crea la carpintería, una sucursal, un depósito, los roles base y el admin.
 

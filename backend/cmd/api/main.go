@@ -10,10 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/FedeCF03/nandubay/backend/internal/auth"
-	"github.com/FedeCF03/nandubay/backend/internal/config"
-	"github.com/FedeCF03/nandubay/backend/internal/db"
-	"github.com/FedeCF03/nandubay/backend/internal/httpapi"
+	"github.com/FedeCF03/nandubay/backend/internal/adaptadores/api"
+	"github.com/FedeCF03/nandubay/backend/internal/adaptadores/postgres"
+	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
+	"github.com/FedeCF03/nandubay/backend/internal/plataforma/config"
+	"github.com/FedeCF03/nandubay/backend/internal/plataforma/seguridad"
 )
 
 func main() {
@@ -31,7 +32,7 @@ func correr() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := db.Conectar(ctx, cfg.DatabaseURL)
+	pool, err := postgres.Conectar(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
@@ -39,20 +40,29 @@ func correr() error {
 
 	if cfg.Migrar {
 		slog.Info("aplicando migraciones")
-		if err := db.Migrar(pool); err != nil {
+		if err := postgres.Migrar(pool); err != nil {
 			return err
 		}
 	}
 
+	// Armado de las capas: adaptadores -> casos de uso -> API.
+	casosAcceso := &aplicacion.ServicioAcceso{
+		Repo:   &postgres.RepoAcceso{DB: pool},
+		Hasher: &seguridad.Bcrypt{},
+		Tokens: seguridad.Tokens{},
+	}
+	servidor := &api.Servidor{
+		Acceso:       casosAcceso,
+		Cortes:       aplicacion.ServicioCortes{},
+		Salud:        pool.Ping,
+		Limitador:    api.NuevoLimitador(10, 15*time.Minute),
+		CORSOrigen:   cfg.CORSOrigen,
+		CookieSegura: cfg.CookieSegura,
+	}
+
 	srv := &http.Server{
-		Addr: ":" + cfg.Puerto,
-		Handler: (&httpapi.Servidor{
-			DB:           pool,
-			Auth:         &auth.Servicio{DB: pool},
-			Limitador:    auth.NuevoLimitador(10, 15*time.Minute),
-			CORSOrigen:   cfg.CORSOrigen,
-			CookieSegura: cfg.CookieSegura,
-		}).Router(),
+		Addr:              ":" + cfg.Puerto,
+		Handler:           servidor.Router(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
