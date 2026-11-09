@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/FedeCF03/nandubay/backend/internal/auth"
 	"github.com/FedeCF03/nandubay/backend/internal/config"
 	"github.com/FedeCF03/nandubay/backend/internal/db"
 	"github.com/FedeCF03/nandubay/backend/internal/httpapi"
@@ -44,8 +45,14 @@ func correr() error {
 	}
 
 	srv := &http.Server{
-		Addr:              ":" + cfg.Puerto,
-		Handler:           (&httpapi.Servidor{DB: pool, CORSOrigen: cfg.CORSOrigen}).Router(),
+		Addr: ":" + cfg.Puerto,
+		Handler: (&httpapi.Servidor{
+			DB:           pool,
+			Auth:         &auth.Servicio{DB: pool},
+			Limitador:    auth.NuevoLimitador(10, 15*time.Minute),
+			CORSOrigen:   cfg.CORSOrigen,
+			CookieSegura: cfg.CookieSegura,
+		}).Router(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {

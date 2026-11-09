@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/FedeCF03/nandubay/backend/internal/auth"
 	"github.com/FedeCF03/nandubay/backend/internal/cortes"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -13,8 +14,11 @@ import (
 )
 
 type Servidor struct {
-	DB         *pgxpool.Pool
-	CORSOrigen string
+	DB           *pgxpool.Pool
+	Auth         *auth.Servicio
+	Limitador    *auth.Limitador
+	CORSOrigen   string
+	CookieSegura bool
 }
 
 func (s *Servidor) Router() http.Handler {
@@ -22,10 +26,19 @@ func (s *Servidor) Router() http.Handler {
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(s.cors)
+	r.Use(soloJSON)
 
 	r.Get("/healthz", s.salud)
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Post("/cortes/optimizar", s.optimizarCortes)
+		r.Post("/auth/login", s.login)
+		r.Post("/auth/logout", s.logout)
+
+		r.Group(func(r chi.Router) {
+			r.Use(s.requiereSesion)
+			r.Get("/auth/yo", s.yo)
+			r.Post("/auth/sucursal", s.elegirSucursal)
+			r.With(requierePermiso("cortes.generar")).Post("/cortes/optimizar", s.optimizarCortes)
+		})
 	})
 	return r
 }
@@ -53,8 +66,7 @@ type respuestaOptimizar struct {
 // versión que lee las piezas de un pedido y guarda el plan.
 func (s *Servidor) optimizarCortes(w http.ResponseWriter, r *http.Request) {
 	var p pedidoOptimizar
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&p); err != nil {
-		responderError(w, http.StatusBadRequest, "JSON inválido: "+err.Error())
+	if !leerJSON(w, r, &p) {
 		return
 	}
 	if len(p.Piezas) == 0 {
@@ -73,6 +85,7 @@ func (s *Servidor) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.CORSOrigen != "" {
 			w.Header().Set("Access-Control-Allow-Origin", s.CORSOrigen)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			if r.Method == http.MethodOptions {

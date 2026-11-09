@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { AlertTriangle, Layers, Loader2, Plus, Printer, Recycle, Ruler, Scissors, Trash2 } from 'lucide-react'
 import { postJSON } from '@/api/cliente'
+import { usePermiso } from '@/auth/sesion'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -66,6 +67,7 @@ export function Optimizador() {
     sobrante_min_largo: 300, sobrante_min_ancho: 150,
   })
   const [piezas, setPiezas] = useState<Pieza[]>(ejemplo)
+  const puedeGenerar = usePermiso('cortes.generar')
 
   const optimizar = useMutation({
     mutationFn: () =>
@@ -156,7 +158,8 @@ export function Optimizador() {
             <Button variant="outline" onClick={() => setPiezas([...piezas, nuevaPieza()])}>
               <Plus /> Agregar pieza
             </Button>
-            <Button disabled={optimizar.isPending || totalPiezas === 0} onClick={() => optimizar.mutate()}>
+            <Button disabled={!puedeGenerar || optimizar.isPending || totalPiezas === 0}
+              title={puedeGenerar ? undefined : 'Tu usuario no tiene permiso para generar cortes'} onClick={() => optimizar.mutate()}>
               {optimizar.isPending ? <Loader2 className="animate-spin" /> : <Scissors />}
               Optimizar cortes
             </Button>

@@ -9,18 +9,21 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { navegacion, tituloDe } from './navegacion'
+import { useUsuario } from '@/auth/sesion'
+import { MenuUsuario } from './MenuUsuario'
+import { tituloDe, visiblesPara } from './navegacion'
 import { aplicarTema, temaInicial } from './tema'
 
 function Marca() {
+  const u = useUsuario()
   return (
     <div className="flex items-center gap-2 px-2 py-1.5">
       <div className="flex size-8 items-center justify-center rounded-md bg-sidebar-primary font-bold text-sidebar-primary-foreground">
         Ñ
       </div>
-      <div className="leading-tight group-data-[collapsible=icon]:hidden">
+      <div className="min-w-0 leading-tight group-data-[collapsible=icon]:hidden">
         <div className="font-semibold">Ñandubay</div>
-        <div className="text-xs text-sidebar-foreground/60">Carpintería López</div>
+        <div className="truncate text-xs text-sidebar-foreground/60">{u.carpinteria}</div>
       </div>
     </div>
   )
@@ -29,9 +32,10 @@ function Marca() {
 function Menu() {
   const [pathname] = useLocation()
   const { setOpenMobile } = useSidebar()
+  const { permisos } = useUsuario()
   return (
     <SidebarContent>
-      {navegacion.map((g) => (
+      {visiblesPara(permisos).map((g) => (
         <SidebarGroup key={g.grupo}>
           <SidebarGroupLabel className="text-sidebar-foreground/50">{g.grupo}</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -77,9 +81,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <Sidebar collapsible="icon" className="no-imprimir">
         <SidebarHeader><Marca /></SidebarHeader>
         <Menu />
-        <SidebarFooter className="px-4 py-3 text-xs text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden">
-          Sucursal Centro
-        </SidebarFooter>
+        <SidebarFooter><MenuUsuario /></SidebarFooter>
       </Sidebar>
       <SidebarInset>
         <header className="no-imprimir sticky top-0 z-10 flex h-14 items-center gap-2 border-b bg-background/90 px-4 backdrop-blur">

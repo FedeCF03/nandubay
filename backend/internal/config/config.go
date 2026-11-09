@@ -11,14 +11,17 @@ type Config struct {
 	DatabaseURL string // DATABASE_URL, ej: postgres://app:clave@db:5432/nandubay
 	Migrar      bool   // MIGRAR=1 corre las migraciones al arrancar
 	CORSOrigen  string // CORS_ORIGEN, ej: http://localhost:5173 en desarrollo
+	// COOKIE_SEGURA=0 permite la cookie de sesión sin HTTPS (solo para desarrollo).
+	CookieSegura bool
 }
 
 func Cargar() (Config, error) {
 	c := Config{
-		Puerto:      envOr("PUERTO", "8080"),
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		Migrar:      os.Getenv("MIGRAR") == "1",
-		CORSOrigen:  os.Getenv("CORS_ORIGEN"),
+		Puerto:       envOr("PUERTO", "8080"),
+		DatabaseURL:  os.Getenv("DATABASE_URL"),
+		Migrar:       os.Getenv("MIGRAR") == "1",
+		CORSOrigen:   os.Getenv("CORS_ORIGEN"),
+		CookieSegura: os.Getenv("COOKIE_SEGURA") != "0",
 	}
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("falta DATABASE_URL")

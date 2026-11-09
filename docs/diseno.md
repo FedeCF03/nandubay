@@ -89,13 +89,32 @@ cortes para el operario, y guardar el plan en `planes_corte` desde un pedido.
 
 ## Próximos pasos
 
-1. Login y sesiones. Pendiente decidir cómo se identifica la carpintería al
-   entrar: email único global (más simple) o subdominio por carpintería.
+1. ~~Login y sesiones~~ (hecho, ver "Login y permisos").
 2. ABM de productos, depósitos y stock con movimientos.
 3. Pedidos y muebles modelo con cálculo de fórmulas.
 4. Guardar planes de corte y generar retazos.
 5. Estadísticas.
 6. Consultas con sqlc y tipos del frontend generados desde OpenAPI.
+
+## Login y permisos
+
+- **Email único en todo el sistema.** Al entrar, la tabla `cuentas_login` (sin
+  RLS, solo email → usuario y carpintería) dice a qué carpintería pertenece el
+  email. Un trigger la mantiene al día desde `usuarios`. La contraseña se lee
+  después de `usuarios`, ya dentro de la carpintería.
+- **Contraseñas** con bcrypt. Si el email no existe se compara igual contra un
+  hash falso, para que la respuesta tarde lo mismo.
+- **Sesiones** en la tabla `sesiones`: el navegador guarda un token aleatorio en
+  una cookie `HttpOnly`, `Secure` y `SameSite=Lax`, y la base guarda solo su hash.
+  Duran 30 días. Cerrar sesión borra la fila, así que se pueden revocar.
+- **CSRF**: además de `SameSite=Lax`, todo pedido que cambia datos tiene que
+  ser JSON, cosa que un formulario de otro sitio no puede mandar.
+- **Límite de intentos**: 10 intentos fallidos cada 15 minutos por IP.
+- **Permisos por sucursal**: la sesión guarda la sucursal elegida. Los permisos
+  salen de los roles del usuario en esa sucursal más los roles sin sucursal.
+  Cada endpoint declara el permiso que necesita (`requierePermiso("cortes.generar")`).
+- **Alta de carpinterías**: por ahora con `nandubay-admin crear-carpinteria`,
+  que crea la carpintería, una sucursal, un depósito, los roles base y el admin.
 
 ## Frontend
 
