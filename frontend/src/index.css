@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+@media print {
+  .no-imprimir { display: none !important; }
+  .placa-hoja { break-after: page; break-inside: avoid; }
+  body { background: white; }
+}

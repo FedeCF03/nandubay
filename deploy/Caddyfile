@@ -1,0 +1,17 @@
+# DOMINIO viene del .env (ej: nandubay.com.ar). Con un dominio real Caddy
+# saca el certificado HTTPS solo. Para probar local usá DOMINIO=:80
+{$DOMINIO} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+	handle /healthz {
+		reverse_proxy api:8080
+	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
