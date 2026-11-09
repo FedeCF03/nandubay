@@ -96,3 +96,13 @@ cortes para el operario, y guardar el plan en `planes_corte` desde un pedido.
 4. Guardar planes de corte y generar retazos.
 5. Estadísticas.
 6. Consultas con sqlc y tipos del frontend generados desde OpenAPI.
+
+## Frontend
+
+- React + TypeScript + Vite, con componentes de **shadcn/ui** copiados en
+  `frontend/src/components/ui`. Para agregar más se puede usar `npx shadcn add <componente>`.
+- Paleta propia en tonos madera (`frontend/src/index.css`), con modo claro y oscuro.
+- Router **wouter** (unos 2 KB) en vez de React Router, para mantener la app liviana.
+- Cada pantalla se carga recién cuando se entra (`React.lazy`).
+- Para gráficos de estadísticas usar una librería chica (uPlot o Chart.js), cargada solo en esa pantalla.
+- Hoy la carga inicial es de unos 125 KB comprimidos de JavaScript y 11 KB de CSS.

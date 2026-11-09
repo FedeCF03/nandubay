@@ -1,10 +1,18 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { postJSON } from '../api/cliente'
+import { AlertTriangle, Layers, Loader2, Plus, Printer, Recycle, Ruler, Scissors, Trash2 } from 'lucide-react'
+import { postJSON } from '@/api/cliente'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { PlacaSVG } from './PlacaSVG'
+import { SelectorCantos } from './SelectorCantos'
 import type { Parametros, Pieza, Resultado } from './tipos'
 
-let siguienteId = 3
+let siguienteId = 4
 const nuevaPieza = (): Pieza => ({
   id: String(siguienteId++), etiqueta: '', largo: 0, ancho: 0, cantidad: 1, respeta_veta: true,
   cantos: { l1: false, l2: false, a1: false, a2: false },
@@ -15,9 +23,42 @@ const ejemplo: Pieza[] = [
     cantos: { l1: true, l2: false, a1: false, a2: false } },
   { id: '2', etiqueta: 'Puerta', largo: 716, ancho: 396, cantidad: 2, respeta_veta: true,
     cantos: { l1: true, l2: true, a1: true, a2: true } },
+  { id: '3', etiqueta: 'Piso', largo: 764, ancho: 560, cantidad: 1, respeta_veta: true,
+    cantos: { l1: true, l2: false, a1: false, a2: false } },
 ]
 
-const input = 'w-full rounded border border-slate-300 px-2 py-1 text-sm'
+const num = (v: string) => Math.max(0, Number(v) || 0)
+
+function Campo({ id, label, valor, onChange, sufijo }: {
+  id: string; label: string; valor: number; onChange: (n: number) => void; sufijo?: string
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor={id} className="text-xs text-muted-foreground">{label}</Label>
+      <div className="relative">
+        <Input id={id} type="number" inputMode="numeric" value={valor}
+          onChange={(e) => onChange(num(e.target.value))} className={sufijo ? 'pr-9' : ''} />
+        {sufijo && <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">{sufijo}</span>}
+      </div>
+    </div>
+  )
+}
+
+function Dato({ icono: Icono, titulo, valor }: { icono: typeof Layers; titulo: string; valor: string }) {
+  return (
+    <Card className="gap-1 py-4">
+      <CardContent className="flex items-center gap-3 px-4">
+        <div className="flex size-9 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+          <Icono className="size-4" />
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">{titulo}</div>
+          <div className="text-lg font-semibold tabular-nums">{valor}</div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
 
 export function Optimizador() {
   const [params, setParams] = useState<Parametros>({
@@ -33,108 +74,142 @@ export function Optimizador() {
         piezas: piezas.filter((p) => p.largo > 0 && p.ancho > 0),
       }),
   })
-
+  const res = optimizar.data
   const setPieza = (i: number, cambios: Partial<Pieza>) =>
     setPiezas((ps) => ps.map((p, j) => (j === i ? { ...p, ...cambios } : p)))
-  const num = (v: string) => Math.max(0, Number(v) || 0)
-  const res = optimizar.data
+  const totalPiezas = piezas.reduce((t, p) => t + (p.largo && p.ancho ? p.cantidad : 0), 0)
 
   return (
     <div className="space-y-6">
-      <section className="no-imprimir rounded-lg bg-white p-4 shadow-sm">
-        <h2 className="mb-3 font-semibold">Placa</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-          {([
-            ['placa_largo', 'Largo (mm)'], ['placa_ancho', 'Ancho (mm)'],
-            ['kerf', 'Sierra (mm)'], ['refilado', 'Refilado (mm)'],
-          ] as const).map(([k, etiqueta]) => (
-            <label key={k} className="text-sm">
-              {etiqueta}
-              <input type="number" className={input} value={params[k]}
-                onChange={(e) => setParams({ ...params, [k]: num(e.target.value) })} />
-            </label>
-          ))}
-          <label className="flex items-center gap-2 self-end pb-1 text-sm">
-            <input type="checkbox" checked={params.tiene_veta}
-              onChange={(e) => setParams({ ...params, tiene_veta: e.target.checked })} />
-            Tiene veta
-          </label>
-        </div>
-      </section>
+      <div className="no-imprimir">
+        <h2 className="text-2xl font-semibold tracking-tight">Optimizador de cortes</h2>
+        <p className="text-muted-foreground">Cargá las piezas y te armo el plano para la escuadradora.</p>
+      </div>
 
-      <section className="no-imprimir rounded-lg bg-white p-4 shadow-sm">
-        <h2 className="mb-3 font-semibold">Piezas</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead className="text-left text-slate-500">
-              <tr>
-                <th className="pb-2">Nombre</th><th>Largo</th><th>Ancho</th><th>Cant.</th>
-                <th title="No se puede rotar">Veta</th>
-                <th title="Cantos: L1 L2 lados largos, A1 A2 lados anchos">Cantos L1 L2 A1 A2</th><th />
-              </tr>
-            </thead>
-            <tbody>
-              {piezas.map((p, i) => (
-                <tr key={p.id} className="border-t border-slate-100">
-                  <td className="py-1 pr-2"><input className={input} value={p.etiqueta}
-                    onChange={(e) => setPieza(i, { etiqueta: e.target.value })} /></td>
-                  {(['largo', 'ancho', 'cantidad'] as const).map((k) => (
-                    <td key={k} className="pr-2"><input type="number" className={`${input} w-20`} value={p[k]}
-                      onChange={(e) => setPieza(i, { [k]: num(e.target.value) })} /></td>
-                  ))}
-                  <td><input type="checkbox" checked={p.respeta_veta}
-                    onChange={(e) => setPieza(i, { respeta_veta: e.target.checked })} /></td>
-                  <td className="space-x-3">
-                    {(['l1', 'l2', 'a1', 'a2'] as const).map((k) => (
-                      <input key={k} type="checkbox" title={k.toUpperCase()} checked={p.cantos[k]}
-                        onChange={(e) => setPieza(i, { cantos: { ...p.cantos, [k]: e.target.checked } })} />
-                    ))}
-                  </td>
-                  <td><button className="text-red-600" onClick={() => setPiezas(piezas.filter((_, j) => j !== i))}>
-                    Quitar</button></td>
-                </tr>
+      <Card className="no-imprimir">
+        <CardHeader>
+          <CardTitle>Placa</CardTitle>
+          <CardDescription>Medidas de la placa entera. El largo va en el sentido de la veta.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-5">
+          <Campo id="largo" label="Largo" sufijo="mm" valor={params.placa_largo}
+            onChange={(n) => setParams({ ...params, placa_largo: n })} />
+          <Campo id="ancho" label="Ancho" sufijo="mm" valor={params.placa_ancho}
+            onChange={(n) => setParams({ ...params, placa_ancho: n })} />
+          <Campo id="kerf" label="Espesor de sierra" sufijo="mm" valor={params.kerf}
+            onChange={(n) => setParams({ ...params, kerf: n })} />
+          <Campo id="refilado" label="Refilado por borde" sufijo="mm" valor={params.refilado}
+            onChange={(n) => setParams({ ...params, refilado: n })} />
+          <div className="col-span-2 flex items-center gap-2 sm:col-span-4 lg:col-span-1 lg:self-end lg:pb-2">
+            <Checkbox id="veta" checked={params.tiene_veta}
+              onCheckedChange={(v) => setParams({ ...params, tiene_veta: v === true })} />
+            <Label htmlFor="veta">La placa tiene veta</Label>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="no-imprimir">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            Piezas <Badge variant="secondary">{totalPiezas}</Badge>
+          </CardTitle>
+          <CardDescription>
+            Tocá los lados del dibujito para marcar dónde lleva canto.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="hidden grid-cols-[1fr_6rem_6rem_5rem_4rem_4rem_2.5rem] gap-3 px-1 text-xs text-muted-foreground md:grid">
+            <span>Nombre</span><span>Largo</span><span>Ancho</span><span>Cant.</span>
+            <span>Veta</span><span>Cantos</span><span />
+          </div>
+          {piezas.map((p, i) => (
+            <div key={p.id}
+              className="grid grid-cols-3 items-end gap-3 rounded-lg border p-3 md:grid-cols-[1fr_6rem_6rem_5rem_4rem_4rem_2.5rem] md:items-center md:border-0 md:p-1">
+              <div className="col-span-3 md:col-span-1">
+                <Label className="mb-1.5 text-xs text-muted-foreground md:hidden">Nombre</Label>
+                <Input value={p.etiqueta} placeholder="Ej: Lateral" aria-label="Nombre"
+                  onChange={(e) => setPieza(i, { etiqueta: e.target.value })} />
+              </div>
+              {(['largo', 'ancho', 'cantidad'] as const).map((k) => (
+                <div key={k}>
+                  <Label className="mb-1.5 text-xs text-muted-foreground capitalize md:hidden">{k}</Label>
+                  <Input type="number" inputMode="numeric" value={p[k] || ''} aria-label={k}
+                    onChange={(e) => setPieza(i, { [k]: num(e.target.value) })} />
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button className="rounded border border-slate-300 px-3 py-1.5 text-sm"
-            onClick={() => setPiezas([...piezas, nuevaPieza()])}>Agregar pieza</button>
-          <button className="rounded bg-amber-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-            disabled={optimizar.isPending} onClick={() => optimizar.mutate()}>
-            {optimizar.isPending ? 'Calculando…' : 'Optimizar cortes'}</button>
-          {res && <button className="rounded border border-slate-300 px-3 py-1.5 text-sm"
-            onClick={() => window.print()}>Imprimir</button>}
-        </div>
-        {optimizar.isError && <p className="mt-2 text-sm text-red-600">{optimizar.error.message}</p>}
-      </section>
+              <div className="col-span-3 flex items-center justify-between gap-4 md:contents">
+                <label className="flex items-center gap-2 text-sm md:justify-center">
+                  <Checkbox checked={p.respeta_veta} disabled={!params.tiene_veta} aria-label="Respeta veta"
+                    onCheckedChange={(v) => setPieza(i, { respeta_veta: v === true })} />
+                  <span className="md:hidden">Respeta veta</span>
+                </label>
+                <SelectorCantos valor={p.cantos} onChange={(cantos) => setPieza(i, { cantos })} />
+                <Button variant="ghost" size="icon" aria-label="Quitar pieza"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => setPiezas(piezas.filter((_, j) => j !== i))}>
+                  <Trash2 />
+                </Button>
+              </div>
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Button variant="outline" onClick={() => setPiezas([...piezas, nuevaPieza()])}>
+              <Plus /> Agregar pieza
+            </Button>
+            <Button disabled={optimizar.isPending || totalPiezas === 0} onClick={() => optimizar.mutate()}>
+              {optimizar.isPending ? <Loader2 className="animate-spin" /> : <Scissors />}
+              Optimizar cortes
+            </Button>
+            {res && (
+              <Button variant="outline" onClick={() => window.print()}>
+                <Printer /> Imprimir
+              </Button>
+            )}
+          </div>
+          {optimizar.isError && (
+            <p className="flex items-center gap-2 text-sm text-destructive">
+              <AlertTriangle className="size-4" /> {optimizar.error.message}
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {res && (
         <section className="space-y-4">
-          <div className="no-imprimir grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              ['Placas enteras', res.placas_enteras], ['Retazos usados', res.retazos_usados],
-              ['Aprovechamiento', `${res.aprovechamiento}%`], ['Canto', `${res.metros_canto} m`],
-            ].map(([k, v]) => (
-              <div key={k} className="rounded-lg bg-white p-3 shadow-sm">
-                <div className="text-xs text-slate-500">{k}</div>
-                <div className="text-xl font-semibold">{v}</div>
-              </div>
-            ))}
+          <div className="no-imprimir grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Dato icono={Layers} titulo="Placas enteras" valor={String(res.placas_enteras)} />
+            <Dato icono={Recycle} titulo="Retazos usados" valor={String(res.retazos_usados)} />
+            <Dato icono={Scissors} titulo="Aprovechamiento" valor={`${res.aprovechamiento}%`} />
+            <Dato icono={Ruler} titulo="Canto necesario" valor={`${res.metros_canto} m`} />
           </div>
           {res.no_colocadas.length > 0 && (
-            <p className="rounded bg-red-50 p-3 text-sm text-red-700">
-              No entran en la placa: {res.no_colocadas.map((p) => `${p.etiqueta} x${p.cantidad}`).join(', ')}
-            </p>
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              No entran en la placa: {res.no_colocadas.map((p) => `${p.etiqueta || 'sin nombre'} ×${p.cantidad}`).join(', ')}
+            </div>
           )}
           {res.placas.map((pl) => (
-            <div key={pl.indice} className="placa-hoja rounded-lg bg-white p-3 shadow-sm">
-              <div className="mb-2 flex justify-between text-sm">
-                <strong>Placa {pl.indice}{pl.retazo_id ? ` (retazo ${pl.retazo_id})` : ''}: {pl.largo} x {pl.ancho} mm</strong>
-                <span>{pl.piezas.length} piezas · {pl.aprovechamiento}% usado</span>
-              </div>
-              <PlacaSVG placa={pl} piezas={piezas} tieneVeta={params.tiene_veta} />
-            </div>
+            <Card key={pl.indice} className="placa-hoja gap-3">
+              <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  Placa {pl.indice}
+                  {pl.retazo_id && <Badge variant="secondary">Retazo {pl.retazo_id}</Badge>}
+                  <span className="text-sm font-normal text-muted-foreground">{pl.largo} × {pl.ancho} mm</span>
+                </CardTitle>
+                <div className="flex gap-2">
+                  <Badge variant="outline">{pl.piezas.length} piezas</Badge>
+                  <Badge>{pl.aprovechamiento}% usado</Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* En el celular la placa se puede deslizar de costado para leer las medidas. */}
+                <div className="-mx-2 overflow-x-auto px-2 print:overflow-visible">
+                  <div className="min-w-[640px] print:min-w-0">
+                    <PlacaSVG placa={pl} piezas={piezas} tieneVeta={params.tiene_veta} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           ))}
         </section>
       )}

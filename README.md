@@ -6,7 +6,7 @@ estadísticas de ventas. Pensado para varias carpinterías, cada una con sus
 datos separados y con varias sucursales.
 
 - `backend/`: API en Go (chi + pgx) con PostgreSQL. Migraciones en `backend/migrations` (goose).
-- `frontend/`: React + TypeScript + Vite, TanStack Query y Tailwind.
+- `frontend/`: React + TypeScript + Vite, shadcn/ui (Tailwind + Radix), TanStack Query y wouter como router. Cada pantalla se carga por separado.
 - `deploy/` y `docker-compose.yml`: despliegue en un VPS con Docker.
 - `docs/diseno.md`: arquitectura y modelo de datos.
 

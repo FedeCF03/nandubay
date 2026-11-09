@@ -25,4 +25,6 @@ export default tseslint.config(
       ],
     },
   },
+  // Componentes de shadcn/ui: exportan también variantes, es esperado.
+  { files: ['src/components/ui/**'], rules: { 'react-refresh/only-export-components': 'off' } },
 )
