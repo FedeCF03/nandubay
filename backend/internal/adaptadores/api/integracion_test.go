@@ -90,7 +90,8 @@ var hasher = &seguridad.Bcrypt{Costo: 4}
 func preparar(t *testing.T) (*pgxpool.Pool, *aplicacion.ServicioAcceso, *httptest.Server) {
 	pool := baseDePrueba(t)
 	svc := &aplicacion.ServicioAcceso{Repo: &postgres.RepoAcceso{DB: pool}, Hasher: hasher, Tokens: seguridad.Tokens{}}
-	s := &Servidor{Acceso: svc, Cortes: aplicacion.ServicioCortes{}, Salud: pool.Ping, Limitador: NuevoLimitador(5, time.Minute)}
+	s := &Servidor{Acceso: svc, Cortes: aplicacion.ServicioCortes{}, Stock: &aplicacion.ServicioStock{Repo: &postgres.RepoStock{DB: pool}},
+		Salud: pool.Ping, Limitador: NuevoLimitador(5, time.Minute)}
 	srv := httptest.NewServer(s.Router())
 	t.Cleanup(srv.Close)
 	return pool, svc, srv
@@ -258,3 +259,5 @@ func TestRechazaFormularios(t *testing.T) {
 		t.Fatalf("esperaba 415, obtuve %d", res.StatusCode)
 	}
 }
+
+func jsonDecode(res *http.Response, v any) error { return json.NewDecoder(res.Body).Decode(v) }

@@ -4,6 +4,11 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { useUsuario } from '@/auth/sesion'
 import { visiblesPara } from '@/layout/navegacion'
 
+const descripciones: Record<string, string> = {
+  '/cortes': 'Optimizá el corte de placas',
+  '/stock': 'Productos y stock por depósito',
+}
+
 export default function Inicio() {
   const u = useUsuario()
   const accesos = visiblesPara(u.permisos).flatMap((g) => g.items).filter((i) => i.ruta !== '/')
@@ -28,7 +33,7 @@ export default function Inicio() {
                   <ArrowRight className="size-4 opacity-0 transition-opacity group-hover:opacity-100" />
                 </CardTitle>
                 <CardDescription>
-                  {a.ruta === '/cortes' ? 'Optimizá el corte de placas' : 'Próximamente'}
+                  {descripciones[a.ruta] ?? 'Próximamente'}
                 </CardDescription>
               </CardHeader>
             </Card>

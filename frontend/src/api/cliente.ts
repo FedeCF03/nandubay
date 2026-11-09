@@ -23,3 +23,4 @@ async function pedir<T>(metodo: string, ruta: string, cuerpo?: unknown): Promise
 
 export const getJSON = <T>(ruta: string) => pedir<T>('GET', ruta)
 export const postJSON = <T>(ruta: string, cuerpo?: unknown) => pedir<T>('POST', ruta, cuerpo ?? {})
+export const putJSON = <T>(ruta: string, cuerpo: unknown) => pedir<T>('PUT', ruta, cuerpo)
