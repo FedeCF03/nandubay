@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -20,13 +21,14 @@ type CasosVentas interface {
 	ActualizarCliente(ctx context.Context, u *acceso.Usuario, c ventas.Cliente) (ventas.Cliente, error)
 	ListarVentas(ctx context.Context, u *acceso.Usuario, f aplicacion.FiltroVentas) ([]aplicacion.ResumenVenta, error)
 	VerVenta(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.VentaVista, error)
-	CrearPresupuesto(ctx context.Context, u *acceso.Usuario, d ventas.DatosVenta, ls []ventas.LineaNueva) (aplicacion.VentaVista, error)
+	CrearPresupuesto(ctx context.Context, u *acceso.Usuario, tipo ventas.TipoVenta, d ventas.DatosVenta, ls []ventas.LineaNueva) (aplicacion.VentaVista, error)
 	EditarPresupuesto(ctx context.Context, u *acceso.Usuario, id int64, d ventas.DatosVenta, ls []ventas.LineaNueva) (aplicacion.VentaVista, error)
 	Confirmar(ctx context.Context, u *acceso.Usuario, id, depositoID int64) (aplicacion.VentaVista, error)
 	RegistrarPago(ctx context.Context, u *acceso.Usuario, id int64, p ventas.Pago) (aplicacion.VentaVista, error)
 	CambiarEstado(ctx context.Context, u *acceso.Usuario, id int64, e ventas.Estado) (aplicacion.VentaVista, error)
 	Retirar(ctx context.Context, u *acceso.Usuario, id int64, items []ventas.RetiroItem, nota string) (aplicacion.VentaVista, error)
 	Cancelar(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.VentaVista, error)
+	ProductosVendidos(ctx context.Context, u *acceso.Usuario, f aplicacion.FiltroVendidos) ([]aplicacion.ProductoVendido, error)
 }
 
 func (s *Servidor) rutasVentas(r chi.Router) {
@@ -35,6 +37,7 @@ func (s *Servidor) rutasVentas(r chi.Router) {
 	r.With(requierePermiso("clientes.editar")).Put("/clientes/{id}", s.actualizarCliente)
 
 	r.With(requierePermiso("pedidos.ver")).Get("/ventas", s.listarVentas)
+	r.With(requierePermiso("pedidos.ver")).Get("/ventas/productos-vendidos", s.productosVendidos)
 	r.With(requierePermiso("pedidos.ver")).Get("/ventas/{id}", s.verVenta)
 	r.With(requierePermiso("pedidos.editar")).Post("/ventas", s.crearPresupuesto)
 	r.With(requierePermiso("pedidos.editar")).Put("/ventas/{id}", s.editarPresupuesto)
@@ -106,7 +109,7 @@ func (s *Servidor) listarVentas(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limite, _ := strconv.Atoi(q.Get("limite"))
 	vs, err := s.Ventas.ListarVentas(r.Context(), UsuarioDe(r.Context()), aplicacion.FiltroVentas{
-		Estado: q.Get("estado"), Buscar: q.Get("buscar"), Limite: limite,
+		Tipo: ventas.TipoVenta(q.Get("tipo")), Estado: q.Get("estado"), Buscar: q.Get("buscar"), Limite: limite,
 	})
 	if err != nil {
 		responderErrorVentas(w, r, err)
@@ -144,7 +147,7 @@ func (s *Servidor) crearPresupuesto(w http.ResponseWriter, r *http.Request) {
 	if !leerJSON(w, r, &in) {
 		return
 	}
-	s.responderVenta(w, r, http.StatusCreated)(s.Ventas.CrearPresupuesto(r.Context(), UsuarioDe(r.Context()), in.DatosVenta, in.Lineas))
+	s.responderVenta(w, r, http.StatusCreated)(s.Ventas.CrearPresupuesto(r.Context(), UsuarioDe(r.Context()), ventas.Mostrador, in.DatosVenta, in.Lineas))
 }
 
 func (s *Servidor) editarPresupuesto(w http.ResponseWriter, r *http.Request) {
@@ -212,3 +215,40 @@ func (s *Servidor) registrarRetiro(w http.ResponseWriter, r *http.Request) {
 	}
 	s.responderVenta(w, r, http.StatusOK)(s.Ventas.Retirar(r.Context(), UsuarioDe(r.Context()), id, in.Items, in.Nota))
 }
+
+func (s *Servidor) productosVendidos(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	var f aplicacion.FiltroVendidos
+	var err error
+	// Las fechas vienen como AAAA-MM-DD; "hasta" es el último día incluido.
+	if v := q.Get("desde"); v != "" {
+		if f.Desde, err = time.ParseInLocation("2006-01-02", v, zonaHoraria); err != nil {
+			responderError(w, http.StatusBadRequest, "fecha desde inválida")
+			return
+		}
+	}
+	if v := q.Get("hasta"); v != "" {
+		var h time.Time
+		if h, err = time.ParseInLocation("2006-01-02", v, zonaHoraria); err != nil {
+			responderError(w, http.StatusBadRequest, "fecha hasta inválida")
+			return
+		}
+		f.Hasta = h.AddDate(0, 0, 1)
+	}
+	f.SucursalID, _ = strconv.ParseInt(q.Get("sucursal_id"), 10, 64)
+	vs, err := s.Ventas.ProductosVendidos(r.Context(), UsuarioDe(r.Context()), f)
+	if err != nil {
+		responderErrorVentas(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusOK, vs)
+}
+
+// zonaHoraria es la de Argentina: un día de ventas va de 0 a 24 hs de acá,
+// aunque el servidor esté en UTC.
+var zonaHoraria = func() *time.Location {
+	if z, err := time.LoadLocation("America/Argentina/Buenos_Aires"); err == nil {
+		return z
+	}
+	return time.Local
+}()

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'wouter'
-import { Plus, Receipt, Search } from 'lucide-react'
+import { BarChart3, Plus, Receipt, Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -12,6 +12,7 @@ import { usePermiso } from '@/auth/sesion'
 import { cn } from '@/lib/utils'
 import { fmtPesos } from '@/stock/api'
 import { colorEstado, fmtFecha, nombreEstado, numeroVenta, useVentas, type ResumenVenta } from '@/ventas/api'
+import { ProductosVendidos } from '@/ventas/ProductosVendidos'
 
 export function EstadoBadge({ estado, className }: { estado: ResumenVenta['estado']; className?: string }) {
   return <Badge variant="secondary" className={cn('border-0', colorEstado[estado], className)}>{nombreEstado[estado]}</Badge>
@@ -24,24 +25,40 @@ function Saldo({ v }: { v: ResumenVenta }) {
 }
 
 export default function Ventas() {
-  const [estado, setEstado] = useState('')
-  const [buscar, setBuscar] = useState('')
-  const [, navegar] = useLocation()
-  const ventas = useVentas(estado, buscar)
+  const [vista, setVista] = useState<'boletas' | 'vendidos'>('boletas')
   const crea = usePermiso('pedidos.editar')
-  const lista = ventas.data ?? []
-
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Ventas y pedidos</h2>
-          <p className="text-muted-foreground">Presupuestos, ventas confirmadas, cobros y retiros.</p>
+          <h2 className="text-2xl font-semibold tracking-tight">Ventas de mostrador</h2>
+          <p className="text-muted-foreground">Placas, cantos y herrajes del stock: boletas, cobros y retiros.</p>
         </div>
         {crea && (
-          <Button asChild><Link href="/ventas/nueva"><Plus /> Nuevo presupuesto</Link></Button>
+          <Button asChild><Link href="/ventas/nueva"><Plus /> Nueva venta</Link></Button>
         )}
       </div>
+      <Tabs value={vista} onValueChange={(v) => setVista(v as typeof vista)}>
+        <TabsList>
+          <TabsTrigger value="boletas"><Receipt /> Historial de boletas</TabsTrigger>
+          <TabsTrigger value="vendidos"><BarChart3 /> Productos vendidos</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {vista === 'boletas' ? <ListaVentas /> : <ProductosVendidos />}
+    </div>
+  )
+}
+
+function ListaVentas() {
+  const [estado, setEstado] = useState('')
+  const [buscar, setBuscar] = useState('')
+  const [, navegar] = useLocation()
+  const ventas = useVentas('mostrador', estado, buscar)
+  const crea = usePermiso('pedidos.editar')
+  const lista = ventas.data ?? []
+
+  return (
+    <div className="space-y-4">
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
@@ -68,7 +85,7 @@ export default function Ventas() {
           <Receipt className="size-10 text-muted-foreground" />
           <p className="font-medium">{buscar || estado ? 'No hay ventas que coincidan.' : 'Todavía no hay ventas.'}</p>
           {crea && !buscar && !estado && (
-            <Button variant="outline" asChild><Link href="/ventas/nueva"><Plus /> Hacer el primer presupuesto</Link></Button>
+            <Button variant="outline" asChild><Link href="/ventas/nueva"><Plus /> Hacer la primera venta</Link></Button>
           )}
         </div>
       ) : (

@@ -85,6 +85,28 @@ func (c *Cliente) Normalizar() error {
 	return nil
 }
 
+// TipoVenta separa las ventas de mostrador (productos del stock) de los
+// presupuestos de muebles, que van en otra sección.
+type TipoVenta string
+
+const (
+	Mostrador TipoVenta = "mostrador"
+	Muebles   TipoVenta = "muebles"
+)
+
+// ControlarLineas dice si las líneas corresponden al tipo de venta: en el
+// mostrador solo se venden productos del stock.
+func ControlarLineas(t TipoVenta, ls []Linea) error {
+	if t == Mostrador {
+		for _, l := range ls {
+			if l.Tipo != LineaProducto {
+				return ErrValidacion{"lineas", "en el mostrador solo se venden productos del stock: los muebles van en presupuestos de muebles"}
+			}
+		}
+	}
+	return nil
+}
+
 type TipoLinea string
 
 const (
@@ -241,6 +263,7 @@ type CambioEstado struct {
 type Pedido struct {
 	ID           int64          `json:"id"`
 	Numero       int            `json:"numero"`
+	Tipo         TipoVenta      `json:"tipo"`
 	Estado       Estado         `json:"estado"`
 	Sucursal     Lugar          `json:"sucursal"` // donde se vendió
 	DepositoID   *int64         `json:"deposito_id"`
@@ -343,6 +366,9 @@ func (p Pedido) Editar(d DatosVenta, lineas []Linea) (Cambio, error) {
 	}
 	if len(lineas) == 0 {
 		return Cambio{}, ErrSinLineas
+	}
+	if err := ControlarLineas(p.Tipo, lineas); err != nil {
+		return Cambio{}, err
 	}
 	return Cambio{Lineas: lineas, Datos: &d}, nil
 }

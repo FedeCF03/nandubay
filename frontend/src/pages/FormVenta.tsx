@@ -150,7 +150,7 @@ function Formulario({ venta }: { venta?: Venta }) {
         <Button variant="ghost" size="icon" asChild aria-label="Volver">
           <Link href={venta ? `/ventas/${venta.id}` : '/ventas'}><ArrowLeft /></Link>
         </Button>
-        <h2 className="text-2xl font-semibold tracking-tight">{venta ? `Editar presupuesto N° ${venta.numero}` : 'Nuevo presupuesto'}</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">{venta ? `Editar presupuesto N° ${venta.numero}` : 'Nueva venta'}</h2>
       </div>
 
       <Card>
@@ -163,13 +163,15 @@ function Formulario({ venta }: { venta?: Venta }) {
           <CardTitle>Detalle</CardTitle>
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="sm" onClick={() => setBuscando(true)}><Package /> Producto</Button>
-            <Button type="button" variant="outline" size="sm" onClick={agregarMueble}><Hammer /> Mueble a medida</Button>
+            {venta?.tipo === 'muebles' && (
+              <Button type="button" variant="outline" size="sm" onClick={agregarMueble}><Hammer /> Mueble a medida</Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {lineas.length === 0 && (
             <div className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
-              Agregá placas, cantos y herrajes del stock, o un mueble a medida.
+              Agregá placas, cantos y herrajes del stock.
             </div>
           )}
           {lineas.map((l, i) => {
@@ -241,7 +243,7 @@ function Formulario({ venta }: { venta?: Venta }) {
       <div className="flex justify-end gap-2 pb-6">
         <Button variant="outline" asChild><Link href={venta ? `/ventas/${venta.id}` : '/ventas'}>Cancelar</Link></Button>
         <Button onClick={enviar} disabled={guardar.isPending}>
-          {guardar.isPending ? <Loader2 className="animate-spin" /> : <Plus />} {venta ? 'Guardar cambios' : 'Guardar presupuesto'}
+          {guardar.isPending ? <Loader2 className="animate-spin" /> : <Plus />} {venta ? 'Guardar cambios' : 'Guardar'}
         </Button>
       </div>
 

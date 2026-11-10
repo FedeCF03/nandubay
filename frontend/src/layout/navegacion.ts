@@ -8,7 +8,7 @@ export const navegacion: { grupo: string; items: ItemNav[] }[] = [
   { grupo: 'General', items: [{ ruta: '/', titulo: 'Inicio', icono: Home }] },
   {
     grupo: 'Ventas',
-    items: [{ ruta: '/ventas', titulo: 'Ventas y pedidos', icono: Receipt, permiso: 'pedidos.ver' }],
+    items: [{ ruta: '/ventas', titulo: 'Ventas de mostrador', icono: Receipt, permiso: 'pedidos.ver' }],
   },
   {
     grupo: 'Taller',

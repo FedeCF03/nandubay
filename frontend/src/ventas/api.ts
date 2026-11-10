@@ -51,6 +51,7 @@ export interface Retiro {
 export interface Venta {
   id: number
   numero: number
+  tipo: TipoVenta
   estado: Estado
   sucursal: Lugar
   deposito_id: number | null
@@ -108,12 +109,14 @@ export interface DatosVenta {
 
 const CLAVE = ['ventas']
 
-export function useVentas(estado: string, buscar: string) {
-  const q = new URLSearchParams()
+export type TipoVenta = 'mostrador' | 'muebles'
+
+export function useVentas(tipo: TipoVenta, estado: string, buscar: string) {
+  const q = new URLSearchParams({ tipo })
   if (estado) q.set('estado', estado)
   if (buscar.trim()) q.set('buscar', buscar.trim())
   return useQuery({
-    queryKey: [...CLAVE, 'lista', estado, buscar],
+    queryKey: [...CLAVE, 'lista', tipo, estado, buscar],
     queryFn: () => getJSON<ResumenVenta[]>(`/api/v1/ventas?${q}`),
     placeholderData: keepPreviousData,
   })
@@ -217,3 +220,31 @@ export function medidas(l: { ancho_mm?: number; alto_mm?: number; profundidad_mm
 
 // Pendiente de retiro de una línea.
 export const pendiente = (l: Linea) => Math.max(0, Math.round((l.cantidad - l.retirado) * 1000) / 1000)
+
+export interface ProductoVendido {
+  producto_id: number
+  nombre: string
+  tipo: string
+  unidad: string
+  cantidad: number
+  importe: number
+  costo: number
+  ventas: number
+}
+
+export function useProductosVendidos(desde: string, hasta: string, sucursal: string) {
+  const q = new URLSearchParams({ desde, hasta })
+  if (sucursal) q.set('sucursal_id', sucursal)
+  return useQuery({
+    queryKey: [...CLAVE, 'vendidos', desde, hasta, sucursal],
+    queryFn: () => getJSON<ProductoVendido[]>(`/api/v1/ventas/productos-vendidos?${q}`),
+    placeholderData: keepPreviousData,
+    enabled: Boolean(desde && hasta),
+  })
+}
+
+// fechaISO devuelve la fecha local como AAAA-MM-DD.
+export function fechaISO(d: Date) {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}

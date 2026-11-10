@@ -150,6 +150,12 @@ cortes para el operario, y guardar el plan en `planes_corte` desde un pedido.
 
 ## Ventas y boletas
 
+Hay dos secciones: **ventas de mostrador** (solo productos del stock: placas, cantos,
+herrajes) y **presupuestos de muebles** (en construcción). Las dos usan la tabla
+`pedidos` con la columna `tipo` (`mostrador` o `muebles`) y comparten boleta, pagos y
+retiros. El mostrador tiene un resumen de **productos vendidos** por período y sucursal
+(solo renglones sueltos, no los insumos de un mueble), con la ganancia sobre el costo.
+
 - Una venta nace como **presupuesto** en la sucursal del vendedor. Tiene renglones de
   productos del stock y de muebles a medida. Mientras es presupuesto se edita libremente.
 - **Confirmar** elige el depósito de salida (puede ser de otra sucursal) y descuenta el

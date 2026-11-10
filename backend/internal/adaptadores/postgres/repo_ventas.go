@@ -125,10 +125,11 @@ func (r *RepoVentas) ListarVentas(ctx context.Context, carpinteriaID int64, f ap
 			JOIN sucursales s ON s.id = p.sucursal_id
 			LEFT JOIN depositos d ON d.id = p.deposito_id
 			LEFT JOIN sucursales sr ON sr.id = d.sucursal_id
-			WHERE ($1 = '' OR p.estado::text = $1
+			WHERE ($5 = '' OR p.tipo = $5)
+			  AND ($1 = '' OR p.estado::text = $1
 			       OR ($1 = 'a_retirar' AND p.estado IN ('confirmado','en_corte','en_armado','listo')))
 			  AND ($2 = '' OR p.numero = $3 OR c.nombre ILIKE '%' || $2 || '%')
-			ORDER BY p.numero DESC LIMIT $4`, f.Estado, buscar, numero, f.Limite)
+			ORDER BY p.numero DESC LIMIT $4`, f.Estado, buscar, numero, f.Limite, string(f.Tipo))
 		if err != nil {
 			return err
 		}
@@ -158,7 +159,7 @@ func cargarVenta(ctx context.Context, tx pgx.Tx, id int64) (ventas.Pedido, error
 	var retiraID *int64
 	var entrega *time.Time
 	err := tx.QueryRow(ctx, `
-		SELECT p.id, p.numero, p.estado, coalesce(p.notas,''), p.fecha_entrega, p.creado_en, p.confirmado_en,
+		SELECT p.id, p.numero, p.tipo, p.estado, coalesce(p.notas,''), p.fecha_entrega, p.creado_en, p.confirmado_en,
 		       s.id, s.nombre, coalesce(s.direccion,''), coalesce(s.telefono,''),
 		       p.deposito_id, coalesce(d.nombre,''),
 		       sr.id, coalesce(sr.nombre,''), coalesce(sr.direccion,''), coalesce(sr.telefono,''),
@@ -172,7 +173,7 @@ func cargarVenta(ctx context.Context, tx pgx.Tx, id int64) (ventas.Pedido, error
 		LEFT JOIN depositos d ON d.id = p.deposito_id
 		LEFT JOIN sucursales sr ON sr.id = d.sucursal_id
 		WHERE p.id = $1`, id).Scan(
-		&p.ID, &p.Numero, &p.Estado, &p.Notas, &entrega, &p.CreadoEn, &p.ConfirmadoEn,
+		&p.ID, &p.Numero, &p.Tipo, &p.Estado, &p.Notas, &entrega, &p.CreadoEn, &p.ConfirmadoEn,
 		&p.Sucursal.ID, &p.Sucursal.Nombre, &p.Sucursal.Direccion, &p.Sucursal.Telefono,
 		&p.DepositoID, &p.Deposito,
 		&retiraID, &retira.Nombre, &retira.Direccion, &retira.Telefono,
@@ -382,10 +383,10 @@ func (r *RepoVentas) CrearVenta(ctx context.Context, carpinteriaID int64, v apli
 			return err
 		}
 		err := tx.QueryRow(ctx, `
-			INSERT INTO pedidos (carpinteria_id, numero, sucursal_id, cliente_id, vendedor_id, notas, fecha_entrega, token_publico)
-			VALUES ($1, (SELECT coalesce(max(numero), 0) + 1 FROM pedidos), $2, $3, $4, $5, $6::date, gen_random_uuid()::text)
+			INSERT INTO pedidos (carpinteria_id, numero, sucursal_id, cliente_id, vendedor_id, notas, fecha_entrega, token_publico, tipo)
+			VALUES ($1, (SELECT coalesce(max(numero), 0) + 1 FROM pedidos), $2, $3, $4, $5, $6::date, gen_random_uuid()::text, $7)
 			RETURNING id`,
-			carpinteriaID, v.SucursalID, v.Datos.ClienteID, v.VendedorID, nulo(strings.TrimSpace(v.Datos.Notas)), v.Datos.FechaEntrega).Scan(&id)
+			carpinteriaID, v.SucursalID, v.Datos.ClienteID, v.VendedorID, nulo(strings.TrimSpace(v.Datos.Notas)), v.Datos.FechaEntrega, string(v.Tipo)).Scan(&id)
 		if err != nil {
 			return err
 		}
@@ -497,4 +498,36 @@ func (r *RepoVentas) Modificar(ctx context.Context, carpinteriaID, usuarioID, id
 		return nil
 	})
 	return traducirFecha(err)
+}
+
+func (r *RepoVentas) ProductosVendidos(ctx context.Context, carpinteriaID int64, f aplicacion.FiltroVendidos) ([]aplicacion.ProductoVendido, error) {
+	out := []aplicacion.ProductoVendido{}
+	err := EnCarpinteria(ctx, r.DB, carpinteriaID, func(tx pgx.Tx) error {
+		// Solo productos sueltos (no los insumos de un mueble) de ventas
+		// confirmadas y no canceladas.
+		rows, err := tx.Query(ctx, `
+			SELECT pr.id, pr.nombre, pr.tipo, sum(i.cantidad)::float8,
+			       sum(i.cantidad * i.precio_unitario)::float8, sum(i.cantidad * i.costo_unitario)::float8,
+			       count(DISTINCT p.id)::int
+			FROM pedido_items i
+			JOIN pedidos p ON p.id = i.pedido_id
+			JOIN productos pr ON pr.id = i.producto_id
+			WHERE i.pedido_mueble_id IS NULL
+			  AND p.estado NOT IN ('presupuesto', 'cancelado')
+			  AND p.confirmado_en >= $1 AND p.confirmado_en < $2
+			  AND ($3 = 0 OR p.sucursal_id = $3)
+			GROUP BY pr.id, pr.nombre, pr.tipo
+			ORDER BY 5 DESC, pr.nombre`, f.Desde, f.Hasta, f.SucursalID)
+		if err != nil {
+			return err
+		}
+		out, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (aplicacion.ProductoVendido, error) {
+			var v aplicacion.ProductoVendido
+			err := row.Scan(&v.ProductoID, &v.Nombre, &v.Tipo, &v.Cantidad, &v.Importe, &v.Costo, &v.Ventas)
+			v.Unidad = stock.UnidadDe(stock.Tipo(v.Tipo))
+			return v, err
+		})
+		return err
+	})
+	return out, err
 }
