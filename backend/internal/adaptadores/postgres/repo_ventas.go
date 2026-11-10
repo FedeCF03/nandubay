@@ -363,9 +363,10 @@ func guardarLineas(ctx context.Context, tx pgx.Tx, carpinteriaID, pedidoID int64
 		case ventas.LineaMueble:
 			var muebleID int64
 			err = tx.QueryRow(ctx, `
-				INSERT INTO pedido_muebles (carpinteria_id, pedido_id, nombre, ancho_mm, alto_mm, profundidad_mm, cantidad, precio_unitario, orden)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-				carpinteriaID, pedidoID, l.Descripcion, nulo(l.AnchoMM), nulo(l.AltoMM), nulo(l.ProfundidadMM), int(l.Cantidad), l.PrecioUnitario, i).Scan(&muebleID)
+				INSERT INTO pedido_muebles (carpinteria_id, pedido_id, nombre, ancho_mm, alto_mm, profundidad_mm, cantidad, precio_unitario, orden, clave)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce(nullif($10, '')::uuid, gen_random_uuid())) RETURNING id`,
+				carpinteriaID, pedidoID, l.Descripcion, nulo(l.AnchoMM), nulo(l.AltoMM), nulo(l.ProfundidadMM), int(l.Cantidad), l.PrecioUnitario, i,
+				claveDe(despiece, i)).Scan(&muebleID)
 			if err == nil && i < len(despiece) {
 				err = guardarDespiece(ctx, tx, carpinteriaID, pedidoID, muebleID, despiece[i])
 			}
@@ -374,9 +375,24 @@ func guardarLineas(ctx context.Context, tx pgx.Tx, carpinteriaID, pedidoID int64
 			return err
 		}
 	}
+	if despiece != nil {
+		// Las fotos de los muebles que se sacaron del presupuesto se borran.
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM mueble_fotos WHERE pedido_id = $1
+			AND mueble_clave NOT IN (SELECT clave FROM pedido_muebles WHERE pedido_id = $1)`, pedidoID); err != nil {
+			return err
+		}
+	}
 	p := ventas.Pedido{Lineas: lineas}
 	_, err := tx.Exec(ctx, `UPDATE pedidos SET total = $2, costo_total = $3 WHERE id = $1`, pedidoID, p.Total(), p.Costo())
 	return err
+}
+
+func claveDe(despiece []muebles.Mueble, i int) string {
+	if i < len(despiece) {
+		return despiece[i].Clave
+	}
+	return ""
 }
 
 // guardarDespiece guarda las piezas y los insumos de un mueble. Los productos
@@ -407,7 +423,7 @@ func (r *RepoVentas) BuscarDespiece(ctx context.Context, carpinteriaID, pedidoID
 	var out []muebles.Mueble
 	err := EnCarpinteria(ctx, r.DB, carpinteriaID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT id, nombre, coalesce(ancho_mm,0), coalesce(alto_mm,0), coalesce(profundidad_mm,0), cantidad, precio_unitario::float8
+			SELECT id, clave::text, nombre, coalesce(ancho_mm,0), coalesce(alto_mm,0), coalesce(profundidad_mm,0), cantidad, precio_unitario::float8
 			FROM pedido_muebles WHERE pedido_id = $1 ORDER BY orden, id`, pedidoID)
 		if err != nil {
 			return err
@@ -417,7 +433,7 @@ func (r *RepoVentas) BuscarDespiece(ctx context.Context, carpinteriaID, pedidoID
 		for rows.Next() {
 			var id int64
 			var m muebles.Mueble
-			if err := rows.Scan(&id, &m.Nombre, &m.AnchoMM, &m.AltoMM, &m.ProfundidadMM, &m.Cantidad, &m.Precio); err != nil {
+			if err := rows.Scan(&id, &m.Clave, &m.Nombre, &m.AnchoMM, &m.AltoMM, &m.ProfundidadMM, &m.Cantidad, &m.Precio); err != nil {
 				rows.Close()
 				return err
 			}

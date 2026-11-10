@@ -79,6 +79,39 @@ func TestPresupuestoDeMuebles(t *testing.T) {
 		t.Fatalf("editar: %d %v", st, p)
 	}
 
+	// Fotos: se agregan a un mueble y siguen ahí después de editar.
+	clave := p["muebles"].([]any)[0].(map[string]any)["clave"].(string)
+	clave2 := p["muebles"].([]any)[1].(map[string]any)["clave"].(string)
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00")
+	st, foto := c.pedir("POST", "/api/v1/presupuestos/"+itoa(id)+"/fotos", map[string]any{"mueble_clave": clave, "datos": png})
+	if st != http.StatusCreated {
+		t.Fatalf("subir foto: %d %v", st, foto)
+	}
+	_, foto2 := c.pedir("POST", "/api/v1/presupuestos/"+itoa(id)+"/fotos", map[string]any{"mueble_clave": clave2, "datos": png})
+	if st, r := c.pedir("POST", "/api/v1/presupuestos/"+itoa(id)+"/fotos", map[string]any{"mueble_clave": clave, "datos": []byte("<svg onload=alert(1)>")}); st != http.StatusUnprocessableEntity {
+		t.Errorf("foto que no es imagen: %d %v", st, r)
+	}
+	if st, _ := c.pedir("POST", "/api/v1/presupuestos/"+itoa(id)+"/fotos", map[string]any{"mueble_clave": "00000000-0000-0000-0000-000000000000", "datos": png}); st != http.StatusNotFound {
+		t.Errorf("foto de un mueble que no existe: %d", st)
+	}
+	res, err := c.c.Get(c.srv.URL + "/api/v1/presupuestos/" + itoa(id) + "/fotos/" + itoa(idDeJSON(foto)))
+	if err != nil || res.StatusCode != http.StatusOK || res.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("ver foto: %v %v", err, res)
+	}
+	res.Body.Close()
+	// Al editar se mantiene la clave del primer mueble; el segundo se saca y su foto se borra.
+	cuerpo["muebles"] = []any{p["muebles"].([]any)[0]}
+	st, p = c.pedir("PUT", "/api/v1/presupuestos/"+itoa(id), cuerpo)
+	if st != http.StatusOK || p["muebles"].([]any)[0].(map[string]any)["clave"] != clave {
+		t.Fatalf("editar con fotos: %d %v", st, p)
+	}
+	if fs := p["fotos"].([]any); len(fs) != 1 || idDeJSON(fs[0].(map[string]any)) != idDeJSON(foto) {
+		t.Errorf("fotos después de editar: %v (la del mueble sacado era %v)", fs, foto2["id"])
+	}
+	if st, _ := c.pedir("DELETE", "/api/v1/presupuestos/"+itoa(id)+"/fotos/"+itoa(idDeJSON(foto)), nil); st != http.StatusNoContent {
+		t.Errorf("borrar foto: %d", st)
+	}
+
 	// Errores de validación.
 	malo := map[string]any{"cliente_id": idDeJSON(cli), "muebles": []any{map[string]any{"nombre": "X", "cantidad": 1,
 		"piezas": []map[string]any{{"placa_id": idDeJSON(bisagra), "largo": 100, "ancho": 100, "cantidad": 1}}}}}

@@ -1,7 +1,10 @@
 package aplicacion
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"net/http"
 
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
@@ -17,6 +20,7 @@ type PresupuestoMuebles struct {
 	Venta      VentaVista          `json:"venta"`
 	Muebles    []muebles.Mueble    `json:"muebles"`
 	Materiales *muebles.Materiales `json:"materiales"`
+	Fotos      []FotoMueble        `json:"fotos"`
 	// ErrorMateriales dice por qué no se pudieron calcular (por ejemplo, si
 	// se dio de baja un producto).
 	ErrorMateriales string `json:"error_materiales,omitempty"`
@@ -88,7 +92,11 @@ func (s *ServicioVentas) VerPresupuestoMuebles(ctx context.Context, u *acceso.Us
 	if err != nil {
 		return PresupuestoMuebles{}, err
 	}
-	out := PresupuestoMuebles{Venta: v, Muebles: ms}
+	fotos, err := s.Repo.ListarFotos(ctx, u.CarpinteriaID, id)
+	if err != nil {
+		return PresupuestoMuebles{}, err
+	}
+	out := PresupuestoMuebles{Venta: v, Muebles: ms, Fotos: fotos}
 	if len(ms) > 0 {
 		if mat, err := s.calcular(ctx, u, ms); err != nil {
 			out.ErrorMateriales = err.Error()
@@ -97,4 +105,55 @@ func (s *ServicioVentas) VerPresupuestoMuebles(ctx context.Context, u *acceso.Us
 		}
 	}
 	return out, nil
+}
+
+// Límites de las fotos de los muebles. El navegador las achica antes de
+// mandarlas, así que una foto normal pesa unos cientos de KB.
+const (
+	MaxFotosPorMueble = 12
+	MaxBytesFoto      = 4 << 20
+)
+
+var (
+	ErrDemasiadasFotos = errors.New("el mueble ya tiene el máximo de fotos")
+	ErrFotoInvalida    = errors.New("la foto tiene que ser JPG, PNG o WebP de hasta 4 MB")
+)
+
+// AgregarFoto guarda una foto de un mueble del presupuesto. El tipo se
+// detecta de los bytes, no se le cree al navegador.
+func (s *ServicioVentas) AgregarFoto(ctx context.Context, u *acceso.Usuario, pedidoID int64, clave string, datos []byte) (FotoMueble, error) {
+	if len(datos) == 0 || len(datos) > MaxBytesFoto {
+		return FotoMueble{}, ErrFotoInvalida
+	}
+	tipo := http.DetectContentType(datos)
+	// DetectContentType no reconoce WebP en todas las versiones: se mira la cabecera.
+	if len(datos) > 12 && bytes.Equal(datos[:4], []byte("RIFF")) && bytes.Equal(datos[8:12], []byte("WEBP")) {
+		tipo = "image/webp"
+	}
+	switch tipo {
+	case "image/jpeg", "image/png", "image/webp":
+	default:
+		return FotoMueble{}, ErrFotoInvalida
+	}
+	if _, err := s.verPresupuesto(ctx, u, pedidoID); err != nil {
+		return FotoMueble{}, err
+	}
+	return s.Repo.AgregarFoto(ctx, u.CarpinteriaID, u.ID, pedidoID, FotoNueva{MuebleClave: clave, Tipo: tipo, Datos: datos})
+}
+
+func (s *ServicioVentas) VerFoto(ctx context.Context, u *acceso.Usuario, pedidoID, fotoID int64) (string, []byte, error) {
+	return s.Repo.BuscarFoto(ctx, u.CarpinteriaID, pedidoID, fotoID)
+}
+
+func (s *ServicioVentas) BorrarFoto(ctx context.Context, u *acceso.Usuario, pedidoID, fotoID int64) error {
+	return s.Repo.BorrarFoto(ctx, u.CarpinteriaID, pedidoID, fotoID)
+}
+
+// verPresupuesto controla que la venta exista y sea un presupuesto de muebles.
+func (s *ServicioVentas) verPresupuesto(ctx context.Context, u *acceso.Usuario, id int64) (VentaVista, error) {
+	v, err := s.VerVenta(ctx, u, id)
+	if err == nil && v.Tipo != ventas.Muebles {
+		err = ventas.ErrNoEncontrado
+	}
+	return v, err
 }
