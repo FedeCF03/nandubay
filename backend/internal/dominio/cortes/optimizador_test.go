@@ -133,3 +133,27 @@ func TestMetrosCanto(t *testing.T) {
 		t.Fatalf("esperaba 3.96 m con merma, obtuve %v", m)
 	}
 }
+
+func TestNombreOpcional(t *testing.T) {
+	res, err := Optimizar(base(), []Pieza{
+		{ID: "a", Etiqueta: "Lateral", Largo: 720, Ancho: 560, Cantidad: 1},
+		{ID: "b", Largo: 500, Ancho: 300, Cantidad: 2},
+		{ID: "c", Etiqueta: "   ", Largo: 400, Ancho: 200, Cantidad: 1},
+		{ID: "d", Largo: 3000, Ancho: 100, Cantidad: 1}, // no entra
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nombres := map[string]string{}
+	for _, c := range res.Placas[0].Piezas {
+		nombres[c.PiezaID+c.Etiqueta] = c.Etiqueta
+	}
+	for _, n := range []string{"aLateral", "bPieza 2 (1/2)", "bPieza 2 (2/2)", "cPieza 3"} {
+		if _, ok := nombres[n]; !ok {
+			t.Errorf("falta %q en %v", n, nombres)
+		}
+	}
+	if len(res.NoColocadas) != 1 || res.NoColocadas[0].Etiqueta != "Pieza 4" {
+		t.Errorf("no colocadas = %+v", res.NoColocadas)
+	}
+}

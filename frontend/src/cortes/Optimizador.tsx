@@ -1,8 +1,8 @@
-import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { AlertTriangle, Layers, Loader2, Plus, Printer, Recycle, Ruler, Scissors, Trash2 } from 'lucide-react'
 import { postJSON } from '@/api/cliente'
 import { usePermiso } from '@/auth/sesion'
+import { useGuardado } from '@/hooks/use-guardado'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -62,18 +62,23 @@ function Dato({ icono: Icono, titulo, valor }: { icono: typeof Layers; titulo: s
 }
 
 export function Optimizador() {
-  const [params, setParams] = useState<Parametros>({
+  const [params, setParams] = useGuardado<Parametros>('nandubay.cortes.placa', {
     placa_largo: 2600, placa_ancho: 1830, tiene_veta: true, kerf: 3, refilado: 0,
     sobrante_min_largo: 300, sobrante_min_ancho: 150,
   })
-  const [piezas, setPiezas] = useState<Pieza[]>(ejemplo)
+  const [piezas, setPiezas] = useGuardado<Pieza[]>('nandubay.cortes.piezas', ejemplo)
+  // Las piezas nuevas tienen que tener un id distinto de las guardadas.
+  siguienteId = Math.max(siguienteId, ...piezas.map((p) => Number(p.id) + 1 || 0))
   const puedeGenerar = usePermiso('cortes.generar')
 
   const optimizar = useMutation({
     mutationFn: () =>
       postJSON<Resultado>('/api/v1/cortes/optimizar', {
         parametros: params,
-        piezas: piezas.filter((p) => p.largo > 0 && p.ancho > 0),
+        // Sin nombre, la pieza se llama como su renglón (lo mismo que muestra el campo vacío).
+        piezas: piezas
+          .map((p, i) => ({ ...p, etiqueta: p.etiqueta.trim() || `Pieza ${i + 1}` }))
+          .filter((p) => p.largo > 0 && p.ancho > 0),
       }),
   })
   const res = optimizar.data
@@ -121,15 +126,15 @@ export function Optimizador() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="hidden grid-cols-[1fr_6rem_6rem_5rem_4rem_4rem_2.5rem] gap-3 px-1 text-xs text-muted-foreground md:grid">
-            <span>Nombre</span><span>Largo</span><span>Ancho</span><span>Cant.</span>
+            <span>Nombre (opcional)</span><span>Largo</span><span>Ancho</span><span>Cant.</span>
             <span>Veta</span><span>Cantos</span><span />
           </div>
           {piezas.map((p, i) => (
             <div key={p.id}
               className="grid grid-cols-3 items-end gap-3 rounded-lg border p-3 md:grid-cols-[1fr_6rem_6rem_5rem_4rem_4rem_2.5rem] md:items-center md:border-0 md:p-1">
               <div className="col-span-3 md:col-span-1">
-                <Label className="mb-1.5 text-xs text-muted-foreground md:hidden">Nombre</Label>
-                <Input value={p.etiqueta} placeholder="Ej: Lateral" aria-label="Nombre"
+                <Label className="mb-1.5 text-xs text-muted-foreground md:hidden">Nombre (opcional)</Label>
+                <Input value={p.etiqueta} placeholder={`Pieza ${i + 1}`} aria-label="Nombre (opcional)"
                   onChange={(e) => setPieza(i, { etiqueta: e.target.value })} />
               </div>
               {(['largo', 'ancho', 'cantidad'] as const).map((k) => (
@@ -211,6 +216,10 @@ export function Optimizador() {
                     <PlacaSVG placa={pl} piezas={piezas} tieneVeta={params.tiene_veta} />
                   </div>
                 </div>
+                <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="inline-block h-1 w-6 rounded-full bg-[oklch(0.52_0.2_28)]" />
+                  Canto: la línea va del lado de adentro de la pieza que lo lleva, con la medida de ese lado.
+                </p>
               </CardContent>
             </Card>
           ))}

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Cantos indica qué lados de la pieza llevan tapacanto.
@@ -22,7 +23,8 @@ type Cantos struct {
 	A2 bool `json:"a2"`
 }
 
-// Pieza es una pieza a cortar. Largo va en el sentido de la veta.
+// Pieza es una pieza a cortar. Largo va en el sentido de la veta. La
+// etiqueta (nombre) es opcional.
 type Pieza struct {
 	ID          string `json:"id"`
 	Etiqueta    string `json:"etiqueta"`
@@ -113,7 +115,12 @@ func Optimizar(p Parametros, piezas []Pieza) (Resultado, error) {
 	}
 
 	var unidades []unidad
-	for _, pz := range piezas {
+	for n, pz := range piezas {
+		// El nombre es opcional: sin nombre, la pieza se llama por su número.
+		pz.Etiqueta = strings.TrimSpace(pz.Etiqueta)
+		if pz.Etiqueta == "" {
+			pz.Etiqueta = fmt.Sprintf("Pieza %d", n+1)
+		}
 		if pz.Largo <= 0 || pz.Ancho <= 0 {
 			return Resultado{}, fmt.Errorf("la pieza %q tiene medidas inválidas", pz.Etiqueta)
 		}
