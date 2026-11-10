@@ -40,10 +40,12 @@ backend/
 ├── internal/
 │   ├── dominio/               Entidades y reglas de negocio puras
 │   │   ├── acceso/            Usuarios, sucursales, permisos, roles base
+│   │   ├── stock/             Productos, depósitos, ingresos, ajustes, traspasos
 │   │   └── cortes/            Optimizador de cortes y metros de canto
 │   ├── aplicacion/            Casos de uso y puertos (interfaces)
 │   │   ├── puertos.go         Lo que la aplicación necesita del exterior
 │   │   ├── acceso.go          Login, sesiones, alta de carpinterías
+│   │   ├── stock.go           Productos y movimientos de stock
 │   │   └── cortes.go          Optimizar cortes
 │   ├── adaptadores/           Implementan los puertos o exponen los casos de uso
 │   │   ├── api/               HTTP: rutas, sesión, permisos, JSON
@@ -140,11 +142,26 @@ cortes para el operario, y guardar el plan en `planes_corte` desde un pedido.
 ## Próximos pasos
 
 1. ~~Login y sesiones~~ (hecho, ver "Login y permisos").
-2. ABM de productos, depósitos y stock con movimientos.
+2. ~~Productos y stock con movimientos~~ (hecho, ver "Stock").
 3. Pedidos y muebles modelo con cálculo de fórmulas.
 4. Guardar planes de corte y generar retazos.
 5. Estadísticas.
 6. Tipos del frontend generados desde OpenAPI.
+
+## Stock
+
+- Tipos de producto: placa (se cuenta por placa), canto (por metro), herraje y otro (por unidad).
+  El tipo no se cambia después de creado, porque los movimientos ya están en esa unidad.
+- Movimientos: **ingreso** (compra; actualiza el costo del producto), **ajuste por conteo**
+  (se carga lo contado y se registra la diferencia, con motivo obligatorio) y
+  **traspaso** entre depósitos, aunque sean de distintas sucursales.
+- El stock nunca queda negativo. La regla vive en `dominio/stock` como una
+  `Operacion` que calcula el saldo nuevo a partir del actual; el repositorio la
+  aplica con la fila de saldo bloqueada (`SELECT ... FOR UPDATE`), así dos
+  movimientos al mismo tiempo no se pisan. Hay un test con 20 salidas simultáneas.
+- Las claves foráneas no pasan por RLS, así que el repositorio confirma que el
+  depósito es de la carpintería antes de usarlo.
+- Stock bajo: total de todos los depósitos menor al stock mínimo del producto.
 
 ## Login y permisos
 

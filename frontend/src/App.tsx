@@ -9,6 +9,7 @@ import { AppLayout } from '@/layout/AppLayout'
 const Login = lazy(() => import('@/auth/Login'))
 const Inicio = lazy(() => import('@/pages/Inicio'))
 const Cortes = lazy(() => import('@/pages/Cortes'))
+const Stock = lazy(() => import('@/pages/Stock'))
 const Proximamente = lazy(() => import('@/pages/Proximamente'))
 
 function Cargando() {
@@ -39,6 +40,7 @@ export default function App() {
         <Switch>
           <Route path="/" component={Inicio} />
           <Route path="/cortes" component={Cortes} />
+          <Route path="/stock" component={Stock} />
           <Route component={Proximamente} />
         </Switch>
       </AppLayout>

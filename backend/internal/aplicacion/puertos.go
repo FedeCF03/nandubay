@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
 )
 
 // CuentaLogin son los datos necesarios para validar un login.
@@ -83,3 +84,41 @@ type Tokens interface {
 
 // Reloj permite fijar la hora en los tests.
 type Reloj func() time.Time
+
+// FiltroProductos para listar productos.
+type FiltroProductos struct {
+	Tipo      string
+	Buscar    string
+	Inactivos bool
+}
+
+// ProductoConStock es un producto con su stock en cada depósito.
+type ProductoConStock struct {
+	stock.Producto
+	PorDeposito map[int64]float64 `json:"por_deposito"`
+	Total       float64           `json:"total"`
+	Bajo        bool              `json:"bajo"`
+}
+
+// MovimientoRegistrado es un movimiento ya guardado, para el historial.
+type MovimientoRegistrado struct {
+	ID int64 `json:"id"`
+	stock.Movimiento
+	Deposito string    `json:"deposito"`
+	Usuario  string    `json:"usuario"`
+	Fecha    time.Time `json:"fecha"`
+}
+
+// RepositorioStock persiste productos y movimientos de una carpintería.
+// Devuelve stock.ErrNoEncontrado y stock.ErrSkuEnUso cuando corresponde.
+type RepositorioStock interface {
+	ListarProductos(ctx context.Context, carpinteriaID int64, f FiltroProductos) ([]ProductoConStock, error)
+	BuscarProducto(ctx context.Context, carpinteriaID, id int64) (stock.Producto, error)
+	CrearProducto(ctx context.Context, carpinteriaID int64, p stock.Producto) (int64, error)
+	ActualizarProducto(ctx context.Context, carpinteriaID int64, p stock.Producto) error
+	ListarDepositos(ctx context.Context, carpinteriaID int64) ([]stock.Deposito, error)
+	// RegistrarOperaciones aplica todas las operaciones en una sola transacción,
+	// con cada saldo bloqueado mientras se calcula el nuevo. Si una falla, no se aplica ninguna.
+	RegistrarOperaciones(ctx context.Context, carpinteriaID, usuarioID int64, ops []stock.Operacion) error
+	ListarMovimientos(ctx context.Context, carpinteriaID, productoID int64, limite int) ([]MovimientoRegistrado, error)
+}

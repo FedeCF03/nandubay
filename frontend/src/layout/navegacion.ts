@@ -17,7 +17,7 @@ export const navegacion: { grupo: string; items: ItemNav[] }[] = [
   {
     grupo: 'Depósito',
     items: [
-      { ruta: '/stock', titulo: 'Stock', icono: Package, permiso: 'stock.ver' },
+      { ruta: '/stock', titulo: 'Stock', icono: Package, permiso: 'productos.ver' },
       { ruta: '/compras', titulo: 'Compras', icono: Truck, permiso: 'compras.ver' },
     ],
   },
