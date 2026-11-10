@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useUsuario } from '@/auth/sesion'
 import { MenuUsuario } from './MenuUsuario'
-import { tituloDe, visiblesPara } from './navegacion'
+import { activo, tituloDe, visiblesPara } from './navegacion'
 import { aplicarTema, temaInicial } from './tema'
 
 function Marca() {
@@ -42,7 +42,7 @@ function Menu() {
             <SidebarMenu>
               {g.items.map((it) => (
                 <SidebarMenuItem key={it.ruta}>
-                  <SidebarMenuButton asChild isActive={pathname === it.ruta} tooltip={it.titulo}>
+                  <SidebarMenuButton asChild isActive={activo(pathname, it.ruta)} tooltip={it.titulo}>
                     <Link href={it.ruta} onClick={() => setOpenMobile(false)}>
                       <it.icono />
                       <span>{it.titulo}</span>

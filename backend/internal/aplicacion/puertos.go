@@ -9,6 +9,7 @@ import (
 
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/ventas"
 )
 
 // CuentaLogin son los datos necesarios para validar un login.
@@ -121,4 +122,49 @@ type RepositorioStock interface {
 	// con cada saldo bloqueado mientras se calcula el nuevo. Si una falla, no se aplica ninguna.
 	RegistrarOperaciones(ctx context.Context, carpinteriaID, usuarioID int64, ops []stock.Operacion) error
 	ListarMovimientos(ctx context.Context, carpinteriaID, productoID int64, limite int) ([]MovimientoRegistrado, error)
+}
+
+// FiltroVentas para listar ventas.
+type FiltroVentas struct {
+	Estado string // vacío = todas; "a_retirar" = confirmadas con algo pendiente
+	Buscar string // número de venta o nombre del cliente
+	Limite int
+}
+
+// ResumenVenta es un renglón del listado de ventas.
+type ResumenVenta struct {
+	ID       int64         `json:"id"`
+	Numero   int           `json:"numero"`
+	Estado   ventas.Estado `json:"estado"`
+	Cliente  string        `json:"cliente"`
+	Sucursal string        `json:"sucursal"`
+	Retira   string        `json:"retira"`
+	Total    float64       `json:"total"`
+	Saldo    float64       `json:"saldo"`
+	Fecha    time.Time     `json:"fecha"`
+}
+
+// VentaNueva es un presupuesto a guardar.
+type VentaNueva struct {
+	SucursalID int64
+	VendedorID int64
+	Datos      ventas.DatosVenta
+	Lineas     []ventas.Linea
+}
+
+// RepositorioVentas persiste clientes y ventas. Devuelve ventas.ErrNoEncontrado
+// si la venta, el cliente o el depósito no son de la carpintería.
+type RepositorioVentas interface {
+	ListarClientes(ctx context.Context, carpinteriaID int64, buscar string, limite int) ([]ventas.Cliente, error)
+	CrearCliente(ctx context.Context, carpinteriaID int64, c ventas.Cliente) (int64, error)
+	ActualizarCliente(ctx context.Context, carpinteriaID int64, c ventas.Cliente) error
+	// BuscarProductos trae los productos activos con esos ids.
+	BuscarProductos(ctx context.Context, carpinteriaID int64, ids []int64) (map[int64]stock.Producto, error)
+	ListarVentas(ctx context.Context, carpinteriaID int64, f FiltroVentas) ([]ResumenVenta, error)
+	BuscarVenta(ctx context.Context, carpinteriaID, id int64) (ventas.Pedido, error)
+	CrearVenta(ctx context.Context, carpinteriaID int64, v VentaNueva) (int64, error)
+	// Modificar lee la venta bloqueada, le pide a fn el cambio y lo guarda en
+	// la misma transacción, junto con los movimientos de stock. Si algo
+	// falla no se guarda nada.
+	Modificar(ctx context.Context, carpinteriaID, usuarioID, id int64, fn func(ventas.Pedido) (ventas.Cambio, error)) error
 }

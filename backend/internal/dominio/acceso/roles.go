@@ -14,14 +14,14 @@ var RolesBase = []RolBase{
 	{Nombre: "Vendedor", Permisos: []string{
 		"productos.ver", "stock.ver", "clientes.ver", "clientes.editar",
 		"pedidos.ver", "pedidos.editar", "pedidos.confirmar", "pagos.registrar",
-		"cortes.ver", "cortes.generar",
+		"retiros.registrar", "cortes.ver", "cortes.generar",
 	}},
 	{Nombre: "Operario", Permisos: []string{
 		"pedidos.ver", "pedidos.estado", "cortes.ver", "cortes.generar", "stock.ver",
 	}},
 	{Nombre: "Depósito", Permisos: []string{
 		"productos.ver", "productos.editar", "stock.ver", "stock.editar",
-		"compras.ver", "compras.editar", "cortes.ver",
+		"compras.ver", "compras.editar", "cortes.ver", "pedidos.ver", "retiros.registrar",
 	}},
 }
 

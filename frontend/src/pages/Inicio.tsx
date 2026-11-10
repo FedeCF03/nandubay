@@ -7,6 +7,7 @@ import { visiblesPara } from '@/layout/navegacion'
 const descripciones: Record<string, string> = {
   '/cortes': 'Optimizá el corte de placas',
   '/stock': 'Productos y stock por depósito',
+  '/ventas': 'Presupuestos, cobros, boletas y retiros',
 }
 
 export default function Inicio() {
