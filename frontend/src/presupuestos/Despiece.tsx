@@ -3,6 +3,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { fmtNumero, unidadCorta, useProductos } from '@/stock/api'
 import { medidas } from '@/ventas/api'
+import { usePermiso } from '@/auth/sesion'
+import { FotosMueble } from './Fotos'
 import { tieneCanto, usePresupuesto } from './api'
 import { PlanesDeCorte, ResumenMateriales } from './Materiales'
 
@@ -13,12 +15,14 @@ const lados = (c: { l1: boolean; l2: boolean; a1: boolean; a2: boolean }) =>
 // cada mueble, lo que hay que usar del stock y cómo se corta cada placa.
 export function DespieceVenta({ id }: { id: number }) {
   const p = usePresupuesto(id)
+  const edita = usePermiso('pedidos.editar')
   const productos = useProductos({ tipo: '', buscar: '' })
   if (p.isPending) return <Skeleton className="h-64" />
   if (p.isError) return <p className="text-destructive">{p.error.message}</p>
-  const { muebles, materiales, error_materiales } = p.data
+  const { muebles, materiales, error_materiales, fotos } = p.data
   const nombre = new Map((productos.data ?? []).map((x) => [x.id, x]))
-  if (muebles.every((m) => m.piezas.length === 0 && m.insumos.length === 0)) return null
+  const hayDespiece = muebles.some((m) => m.piezas.length > 0 || m.insumos.length > 0)
+  if (muebles.length === 0) return null
 
   return (
     <div className="space-y-5">
@@ -61,6 +65,10 @@ export function DespieceVenta({ id }: { id: number }) {
                     </Table>
                   </div>
                 )}
+                {m.clave && (
+                  <FotosMueble pedidoId={id} clave={m.clave} nombre={m.nombre} edita={edita}
+                    fotos={fotos.filter((f) => f.mueble_clave === m.clave)} />
+                )}
                 {m.insumos.length > 0 && (
                   <div>
                     <div className="mb-1 text-sm font-medium">Herrajes e insumos (por mueble)</div>
@@ -76,13 +84,13 @@ export function DespieceVenta({ id }: { id: number }) {
             </Card>
           ))}
         </div>
-        <Card>
+        {hayDespiece && <Card>
           <CardHeader><CardTitle>Materiales a usar</CardTitle></CardHeader>
           <CardContent>
             {materiales ? <ResumenMateriales mat={materiales} />
               : <p className="text-sm text-destructive">{error_materiales || 'No se pudieron calcular.'}</p>}
           </CardContent>
-        </Card>
+        </Card>}
       </div>
       {materiales && materiales.placas.length > 0 && (
         <Card>

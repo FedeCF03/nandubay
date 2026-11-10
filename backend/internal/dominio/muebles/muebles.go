@@ -8,6 +8,7 @@ package muebles
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,6 +43,9 @@ type Insumo struct {
 // Mueble de un presupuesto. Las cantidades de piezas e insumos son por cada
 // mueble; Cantidad dice cuántos muebles iguales se hacen.
 type Mueble struct {
+	// Clave identifica al mueble entre ediciones del presupuesto (para sus
+	// fotos). Si viene vacía o repetida se crea una nueva al guardar.
+	Clave         string   `json:"clave,omitempty"`
 	Nombre        string   `json:"nombre"`
 	AnchoMM       int      `json:"ancho_mm"`
 	AltoMM        int      `json:"alto_mm"`
@@ -51,6 +55,8 @@ type Mueble struct {
 	Piezas        []Pieza  `json:"piezas"`
 	Insumos       []Insumo `json:"insumos"`
 }
+
+var esUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // MermaCantoMM es lo que se suma en cada tramo de canto al pegarlo.
 const MermaCantoMM = 30
@@ -63,9 +69,15 @@ func Validar(ms []Mueble, productos map[int64]stock.Producto) error {
 	if len(ms) > 100 {
 		return ErrValidacion{"muebles", "demasiados muebles en un presupuesto"}
 	}
+	claves := map[string]bool{}
 	for i := range ms {
 		m := &ms[i]
 		n := i + 1
+		m.Clave = strings.ToLower(strings.TrimSpace(m.Clave))
+		if !esUUID.MatchString(m.Clave) || claves[m.Clave] {
+			m.Clave = ""
+		}
+		claves[m.Clave] = true
 		m.Nombre = strings.TrimSpace(m.Nombre)
 		if m.Nombre == "" {
 			return ErrValidacion{fmt.Sprintf("muebles.%d.nombre", i), fmt.Sprintf("mueble %d: poné qué mueble es", n)}

@@ -199,6 +199,13 @@ margen (el margen se recuerda en el navegador). API: `POST /presupuestos/calcula
 guardar, para ir viendo mientras se carga), `POST /presupuestos`, `GET` y
 `PUT /presupuestos/{id}`. Pagos, confirmación, boleta y retiros son los de cualquier venta.
 
+**Fotos**: cada mueble puede tener hasta 12 fotos (tabla `mueble_fotos`, en la base,
+con RLS). El navegador las achica a JPEG de 1600 px antes de subirlas y viajan en base64
+dentro del JSON, así sigue valiendo la protección CSRF. El servidor detecta el tipo por
+los bytes (solo JPG, PNG o WebP). Las fotos se atan a la `clave` (uuid) del mueble, que se
+mantiene al editar el presupuesto; si se saca un mueble se borran sus fotos.
+`POST /presupuestos/{id}/fotos`, `GET` y `DELETE /presupuestos/{id}/fotos/{foto}`.
+
 Falta: que confirmar descuente del stock las placas, el canto y los insumos calculados.
 
 ## Stock

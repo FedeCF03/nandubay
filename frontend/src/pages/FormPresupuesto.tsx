@@ -38,6 +38,7 @@ interface InsumoForm { clave: number; producto_id: number; nombre: string; unida
 
 interface MuebleForm {
   clave: number
+  id?: string // clave del mueble guardado: mantiene sus fotos al editar
   nombre: string
   ancho: string
   alto: string
@@ -60,7 +61,7 @@ const muebleVacio = (): MuebleForm => ({
 
 function desdePresupuesto(p: PresupuestoMuebles, nombres: Map<number, ProductoConStock>): MuebleForm[] {
   return p.muebles.map((m) => ({
-    clave: siguiente++, nombre: m.nombre, ancho: texto(m.ancho_mm), alto: texto(m.alto_mm), prof: texto(m.profundidad_mm),
+    clave: siguiente++, id: m.clave, nombre: m.nombre, ancho: texto(m.ancho_mm), alto: texto(m.alto_mm), prof: texto(m.profundidad_mm),
     cantidad: String(m.cantidad), precio: texto(m.precio_unitario),
     piezas: m.piezas.map((pz) => ({
       clave: siguiente++, nombre: pz.nombre, placa_id: pz.placa_id, largo: String(pz.largo), ancho: String(pz.ancho),
@@ -77,6 +78,7 @@ function desdePresupuesto(p: PresupuestoMuebles, nombres: Map<number, ProductoCo
 // placa o sin medidas se dejan afuera, así el cálculo anda mientras se carga.
 function aMuebles(ms: MuebleForm[], precio: (m: MuebleForm, i: number) => number, completas: boolean): Mueble[] {
   return ms.map((m, i) => ({
+    clave: m.id,
     nombre: m.nombre.trim() || `Mueble ${i + 1}`,
     ancho_mm: entero(m.ancho), alto_mm: entero(m.alto), profundidad_mm: entero(m.prof),
     cantidad: Math.max(1, entero(m.cantidad)),
@@ -175,7 +177,7 @@ function Formulario({ presupuesto, productos }: { presupuesto?: PresupuestoMuebl
   const duplicar = (m: MuebleForm) => setMuebles((ms) => {
     const i = ms.findIndex((x) => x.clave === m.clave)
     const copia: MuebleForm = {
-      ...m, clave: siguiente++, nombre: m.nombre ? `${m.nombre} (copia)` : '',
+      ...m, clave: siguiente++, id: undefined, nombre: m.nombre ? `${m.nombre} (copia)` : '',
       piezas: m.piezas.map((p) => ({ ...p, clave: siguiente++ })),
       insumos: m.insumos.map((x) => ({ ...x, clave: siguiente++ })),
     }
