@@ -91,7 +91,8 @@ func preparar(t *testing.T) (*pgxpool.Pool, *aplicacion.ServicioAcceso, *httptes
 	pool := baseDePrueba(t)
 	svc := &aplicacion.ServicioAcceso{Repo: &postgres.RepoAcceso{DB: pool}, Hasher: hasher, Tokens: seguridad.Tokens{}}
 	s := &Servidor{Acceso: svc, Cortes: aplicacion.ServicioCortes{}, Stock: &aplicacion.ServicioStock{Repo: &postgres.RepoStock{DB: pool}},
-		Salud: pool.Ping, Limitador: NuevoLimitador(5, time.Minute)}
+		Ventas: &aplicacion.ServicioVentas{Repo: &postgres.RepoVentas{DB: pool}},
+		Salud:  pool.Ping, Limitador: NuevoLimitador(5, time.Minute)}
 	srv := httptest.NewServer(s.Router())
 	t.Cleanup(srv.Close)
 	return pool, svc, srv

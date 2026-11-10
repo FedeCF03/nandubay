@@ -33,6 +33,7 @@ type Servidor struct {
 	Acceso       CasosAcceso
 	Cortes       CasosCortes
 	Stock        CasosStock
+	Ventas       CasosVentas
 	Salud        func(context.Context) error // ej: ping a la base
 	Limitador    *Limitador
 	CORSOrigen   string
@@ -57,6 +58,7 @@ func (s *Servidor) Router() http.Handler {
 			r.Post("/auth/sucursal", s.elegirSucursal)
 			r.With(requierePermiso("cortes.generar")).Post("/cortes/optimizar", s.optimizarCortes)
 			s.rutasStock(r)
+			s.rutasVentas(r)
 		})
 	})
 	return r

@@ -198,6 +198,24 @@ func Traspaso(productoID, origen, destino int64, cantidad float64, nota string) 
 	}, nil
 }
 
+// Venta saca mercadería de un depósito para un pedido confirmado.
+func Venta(productoID, depositoID int64, cantidad float64, nota string) (Operacion, error) {
+	if cantidad <= 0 {
+		return Operacion{}, ErrCantidad
+	}
+	m := Movimiento{productoID, depositoID, MovVenta, -cantidad, nil, strings.TrimSpace(nota)}
+	return Operacion{m, sumar(-cantidad)}, nil
+}
+
+// Devolucion vuelve a entrar mercadería de un pedido cancelado.
+func Devolucion(productoID, depositoID int64, cantidad float64, nota string) (Operacion, error) {
+	if cantidad <= 0 {
+		return Operacion{}, ErrCantidad
+	}
+	m := Movimiento{productoID, depositoID, MovDevolucion, cantidad, nil, strings.TrimSpace(nota)}
+	return Operacion{m, sumar(cantidad)}, nil
+}
+
 // EstaBajo dice si el stock total está por debajo del mínimo.
 func EstaBajo(total, minimo float64) bool { return minimo > 0 && total < minimo }
 

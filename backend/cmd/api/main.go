@@ -55,6 +55,7 @@ func correr() error {
 		Acceso:       casosAcceso,
 		Cortes:       aplicacion.ServicioCortes{},
 		Stock:        &aplicacion.ServicioStock{Repo: &postgres.RepoStock{DB: pool}},
+		Ventas:       &aplicacion.ServicioVentas{Repo: &postgres.RepoVentas{DB: pool}},
 		Salud:        pool.Ping,
 		Limitador:    api.NuevoLimitador(10, 15*time.Minute),
 		CORSOrigen:   cfg.CORSOrigen,

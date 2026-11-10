@@ -1,5 +1,5 @@
 import {
-  BarChart3, ClipboardList, Home, Package, Scissors, Sofa, Truck, Users, type LucideIcon,
+  BarChart3, Home, Receipt, Package, Scissors, Sofa, Truck, Users, type LucideIcon,
 } from 'lucide-react'
 
 export interface ItemNav { ruta: string; titulo: string; icono: LucideIcon; permiso?: string }
@@ -7,9 +7,12 @@ export interface ItemNav { ruta: string; titulo: string; icono: LucideIcon; perm
 export const navegacion: { grupo: string; items: ItemNav[] }[] = [
   { grupo: 'General', items: [{ ruta: '/', titulo: 'Inicio', icono: Home }] },
   {
+    grupo: 'Ventas',
+    items: [{ ruta: '/ventas', titulo: 'Ventas y pedidos', icono: Receipt, permiso: 'pedidos.ver' }],
+  },
+  {
     grupo: 'Taller',
     items: [
-      { ruta: '/pedidos', titulo: 'Pedidos', icono: ClipboardList, permiso: 'pedidos.ver' },
       { ruta: '/cortes', titulo: 'Cortes', icono: Scissors, permiso: 'cortes.ver' },
       { ruta: '/muebles', titulo: 'Muebles modelo', icono: Sofa, permiso: 'pedidos.ver' },
     ],
@@ -30,8 +33,12 @@ export const navegacion: { grupo: string; items: ItemNav[] }[] = [
   },
 ]
 
+// activo dice si la ruta actual está dentro de la sección (ej: /ventas/12 → Ventas).
+export const activo = (actual: string, ruta: string) =>
+  ruta === '/' ? actual === '/' : actual === ruta || actual.startsWith(ruta + '/')
+
 export const tituloDe = (ruta: string) =>
-  navegacion.flatMap((g) => g.items).find((i) => i.ruta === ruta)?.titulo ?? 'Ñandubay'
+  navegacion.flatMap((g) => g.items).find((i) => activo(ruta, i.ruta))?.titulo ?? 'Ñandubay'
 
 export const visiblesPara = (permisos: string[]) =>
   navegacion

@@ -143,10 +143,33 @@ cortes para el operario, y guardar el plan en `planes_corte` desde un pedido.
 
 1. ~~Login y sesiones~~ (hecho, ver "Login y permisos").
 2. ~~Productos y stock con movimientos~~ (hecho, ver "Stock").
-3. Pedidos y muebles modelo con cálculo de fórmulas.
+3. ~~Ventas, pagos, boletas y retiros~~ (hecho, ver "Ventas y boletas"). Falta: muebles modelo con cálculo de fórmulas.
 4. Guardar planes de corte y generar retazos.
 5. Estadísticas.
 6. Tipos del frontend generados desde OpenAPI.
+
+## Ventas y boletas
+
+- Una venta nace como **presupuesto** en la sucursal del vendedor. Tiene renglones de
+  productos del stock y de muebles a medida. Mientras es presupuesto se edita libremente.
+- **Confirmar** elige el depósito de salida (puede ser de otra sucursal) y descuenta el
+  stock en la misma transacción, con movimientos tipo `venta` ligados al pedido. Si no
+  alcanza el stock, no se confirma nada.
+- **Pagos**: seña, pago y devolución. No se puede cobrar más que el saldo.
+- **Retiros**: el cliente retira con la boleta en la sucursal del depósito de salida, de
+  una vez o por partes. Para retirar la venta tiene que estar paga; los muebles se
+  entregan cuando están en estado "lista". Cuando se retira todo, pasa sola a "entregada".
+  Cada retiro guarda qué se llevó; nunca se puede retirar más de lo vendido.
+- Estados de producción (confirmada, en corte, en armado, lista) se cambian a mano.
+- **Cancelar**: solo sin retiros y sin plata cobrada (primero se registra la devolución).
+  Si estaba confirmada, el stock vuelve al depósito.
+- **Boleta A4**: dice PAGADA o SALDO PENDIENTE, dónde se retira, lo que queda por
+  retirar y un QR a la venta. Lleva "X / Documento no válido como factura": no es una
+  factura fiscal (no hay integración con AFIP).
+- El dominio devuelve un `ventas.Cambio` y el repositorio lo aplica con la venta
+  bloqueada (`SELECT … FOR UPDATE`), así dos operaciones a la vez no se pisan.
+- Permisos: `pedidos.ver/editar/confirmar/estado`, `pagos.registrar` y el nuevo
+  `retiros.registrar` (Admin, Vendedor y Depósito).
 
 ## Stock
 

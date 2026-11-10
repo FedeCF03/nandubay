@@ -151,51 +151,63 @@ func (r *RepoStock) ListarDepositos(ctx context.Context, carpinteriaID int64) ([
 
 func (r *RepoStock) RegistrarOperaciones(ctx context.Context, carpinteriaID, usuarioID int64, ops []stock.Operacion) error {
 	return EnCarpinteria(ctx, r.DB, carpinteriaID, func(tx pgx.Tx) error {
-		for _, op := range ops {
-			// Las claves foráneas no pasan por RLS: hay que confirmar que el
-			// depósito es de esta carpintería antes de usarlo.
-			var ok bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM depositos WHERE id = $1 AND activo)`, op.DepositoID).Scan(&ok); err != nil {
-				return err
-			}
-			if !ok {
-				return stock.ErrNoEncontrado
-			}
-			// Crear la fila de saldo si no existe y bloquearla.
-			if _, err := tx.Exec(ctx, `
+		return aplicarOperaciones(ctx, tx, carpinteriaID, usuarioID, nil, ops)
+	})
+}
+
+// aplicarOperaciones mueve el stock dentro de una transacción ya abierta, con
+// cada saldo bloqueado. pedidoID queda en el movimiento si es de una venta.
+func aplicarOperaciones(ctx context.Context, tx pgx.Tx, carpinteriaID, usuarioID int64, pedidoID *int64, ops []stock.Operacion) error {
+	for _, op := range ops {
+		// Las claves foráneas no pasan por RLS: hay que confirmar que el
+		// depósito es de esta carpintería antes de usarlo.
+		var ok bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM depositos WHERE id = $1 AND activo)`, op.DepositoID).Scan(&ok); err != nil {
+			return err
+		}
+		if !ok {
+			return stock.ErrNoEncontrado
+		}
+		// Crear la fila de saldo si no existe y bloquearla.
+		if _, err := tx.Exec(ctx, `
 				INSERT INTO stock (carpinteria_id, producto_id, deposito_id, cantidad) VALUES ($1, $2, $3, 0)
 				ON CONFLICT (producto_id, deposito_id) DO NOTHING`, carpinteriaID, op.ProductoID, op.DepositoID); err != nil {
-				return err
-			}
-			var saldo float64
-			if err := tx.QueryRow(ctx, `
+			return err
+		}
+		var saldo float64
+		if err := tx.QueryRow(ctx, `
 				SELECT cantidad::float8 FROM stock WHERE producto_id = $1 AND deposito_id = $2 FOR UPDATE`,
-				op.ProductoID, op.DepositoID).Scan(&saldo); err != nil {
-				return err
+			op.ProductoID, op.DepositoID).Scan(&saldo); err != nil {
+			return err
+		}
+		nuevo, err := op.Nuevo(saldo)
+		if err != nil {
+			// Decir de qué producto se trata: en una venta puede haber varios.
+			var nombre string
+			if errors.Is(err, stock.ErrStockInsuficiente) &&
+				tx.QueryRow(ctx, `SELECT nombre FROM productos WHERE id = $1`, op.ProductoID).Scan(&nombre) == nil {
+				return fmt.Errorf("%s: %w", nombre, err)
 			}
-			nuevo, err := op.Nuevo(saldo)
-			if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE stock SET cantidad = $3 WHERE producto_id = $1 AND deposito_id = $2`,
+			op.ProductoID, op.DepositoID, nuevo); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+				INSERT INTO stock_movimientos (carpinteria_id, producto_id, deposito_id, tipo, cantidad, costo_unitario, usuario_id, nota, pedido_id)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			carpinteriaID, op.ProductoID, op.DepositoID, op.Tipo, nuevo-saldo, op.CostoUnitario, usuarioID, nulo(op.Nota), pedidoID); err != nil {
+			return err
+		}
+		// Una compra actualiza el costo del producto.
+		if op.Tipo == stock.MovCompra && op.CostoUnitario != nil {
+			if _, err := tx.Exec(ctx, `UPDATE productos SET costo = $2 WHERE id = $1`, op.ProductoID, *op.CostoUnitario); err != nil {
 				return err
-			}
-			if _, err := tx.Exec(ctx, `UPDATE stock SET cantidad = $3 WHERE producto_id = $1 AND deposito_id = $2`,
-				op.ProductoID, op.DepositoID, nuevo); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO stock_movimientos (carpinteria_id, producto_id, deposito_id, tipo, cantidad, costo_unitario, usuario_id, nota)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-				carpinteriaID, op.ProductoID, op.DepositoID, op.Tipo, nuevo-saldo, op.CostoUnitario, usuarioID, nulo(op.Nota)); err != nil {
-				return err
-			}
-			// Una compra actualiza el costo del producto.
-			if op.Tipo == stock.MovCompra && op.CostoUnitario != nil {
-				if _, err := tx.Exec(ctx, `UPDATE productos SET costo = $2 WHERE id = $1`, op.ProductoID, *op.CostoUnitario); err != nil {
-					return err
-				}
 			}
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func (r *RepoStock) ListarMovimientos(ctx context.Context, carpinteriaID, productoID int64, limite int) ([]aplicacion.MovimientoRegistrado, error) {
