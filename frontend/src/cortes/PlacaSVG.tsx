@@ -1,5 +1,7 @@
 import type { Pieza, PlacaUsada } from './tipos'
 
+// Las piezas siempre son claras: el rojo del canto no cambia con el modo oscuro.
+const ROJO_CANTO = 'oklch(0.52 0.2 28)'
 const COLORES = ['#f6dfae', '#c9dcef', '#cfe5c6', '#f2cdc4', '#ddd3ee', '#f3d4b5', '#c4e4e0', '#ead1e3']
 
 interface Props {
@@ -43,31 +45,53 @@ export function PlacaSVG({ placa, piezas, tieneVeta }: Props) {
         const top = y(c.y, c.ancho)
         const fuente = Math.max(24, Math.min(c.largo, c.ancho) / 5, 0)
         // L1/L2 son los lados largos de la pieza; si está rotada quedan verticales.
-        const ladosLargoHorizontales = !c.rotada
+        // El canto se dibuja un poco hacia adentro de la pieza, con la medida
+        // de ese lado, para que no se confunda con el borde de la pieza vecina.
         const cn = pz?.cantos
-        const lineas: [number, number, number, number][] = []
-        if (cn) {
-          const abajo: [number, number, number, number] = [c.x, top + c.ancho, c.x + c.largo, top + c.ancho]
-          const arriba: [number, number, number, number] = [c.x, top, c.x + c.largo, top]
-          const izq: [number, number, number, number] = [c.x, top, c.x, top + c.ancho]
-          const der: [number, number, number, number] = [c.x + c.largo, top, c.x + c.largo, top + c.ancho]
-          const [l1, l2, a1, a2] = ladosLargoHorizontales ? [abajo, arriba, izq, der] : [izq, der, abajo, arriba]
-          if (cn.l1) lineas.push(l1)
-          if (cn.l2) lineas.push(l2)
-          if (cn.a1) lineas.push(a1)
-          if (cn.a2) lineas.push(a2)
-        }
+        const d = canto * 1.4
+        const fCanto = Math.min(fuente * 0.75, 44)
+        // La medida del canto va solo si no se pisa con el texto del centro.
+        const fCentro = Math.min(fuente, 60)
+        const anchoTexto = Math.max(c.etiqueta.length, `${c.largo} x ${c.ancho}`.length) * 0.55 * fCentro
+        const margen = d + fCanto * 1.5
+        // Las medidas de los lados verticales van arriba del texto si hay lugar;
+        // si no, al medio, siempre que no lo pisen.
+        const largoMedida = 3.2 * 0.6 * fCanto
+        const libreArriba = c.ancho / 2 - 1.3 * fCentro - d
+        const yVertical = libreArriba > largoMedida ? top + d + libreArriba / 2 : top + c.ancho / 2
+        const entraVertical = libreArriba > largoMedida || (c.largo - anchoTexto) / 2 > margen
+        const entraHorizontal = (c.ancho - 2.4 * fCentro) / 2 > margen
+        type Lado = { x1: number; y1: number; x2: number; y2: number; tx: number; ty: number; rot: number; medida: number }
+        const abajo: Lado = { x1: c.x + d, y1: top + c.ancho - d, x2: c.x + c.largo - d, y2: top + c.ancho - d,
+          tx: c.x + c.largo / 2, ty: top + c.ancho - d - fCanto * 0.9, rot: 0, medida: c.largo }
+        const arriba: Lado = { x1: c.x + d, y1: top + d, x2: c.x + c.largo - d, y2: top + d,
+          tx: c.x + c.largo / 2, ty: top + d + fCanto * 0.9, rot: 0, medida: c.largo }
+        const izq: Lado = { x1: c.x + d, y1: top + d, x2: c.x + d, y2: top + c.ancho - d,
+          tx: c.x + d + fCanto * 0.9, ty: yVertical, rot: -90, medida: c.ancho }
+        const der: Lado = { x1: c.x + c.largo - d, y1: top + d, x2: c.x + c.largo - d, y2: top + c.ancho - d,
+          tx: c.x + c.largo - d - fCanto * 0.9, ty: yVertical, rot: 90, medida: c.ancho }
+        const [l1, l2, a1, a2] = !c.rotada ? [abajo, arriba, izq, der] : [izq, der, abajo, arriba]
+        const lados = cn ? ([[cn.l1, l1], [cn.l2, l2], [cn.a1, a1], [cn.a2, a2]] as const).filter(([si]) => si).map(([, l]) => l) : []
+        const conCanto = cn ? [cn.l1 && 'L1', cn.l2 && 'L2', cn.a1 && 'A1', cn.a2 && 'A2'].filter(Boolean).join(', ') : ''
         return (
           <g key={i}>
             <rect x={c.x} y={top} width={c.largo} height={c.ancho} fill={pz?.color ?? '#e7e0d6'}
               fillOpacity={0.95} stroke="#3b2a1e" strokeWidth={2}>
-              <title>{`${c.etiqueta}: ${c.largo} x ${c.ancho} mm${c.rotada ? ' (rotada)' : ''}`}</title>
+              <title>{`${c.etiqueta}: ${c.largo} x ${c.ancho} mm${c.rotada ? ' (rotada)' : ''}${conCanto ? ` · canto en ${conCanto}` : ''}`}</title>
             </rect>
-            {lineas.map(([x1, y1, x2, y2], j) => (
-              <line key={j} x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--canto)" strokeWidth={canto} />
+            {lados.map((l, j) => (
+              <g key={j} pointerEvents="none">
+                <line x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke={ROJO_CANTO} strokeWidth={canto} strokeLinecap="round" />
+                {(l.rot ? entraVertical : entraHorizontal) && (
+                  <text x={l.tx} y={l.ty} textAnchor="middle" dominantBaseline="middle" fontSize={fCanto}
+                    fontWeight={600} fill={ROJO_CANTO} transform={l.rot ? `rotate(${l.rot} ${l.tx} ${l.ty})` : undefined}>
+                    {l.medida}
+                  </text>
+                )}
+              </g>
             ))}
             <text x={c.x + c.largo / 2} y={top + c.ancho / 2} textAnchor="middle" dominantBaseline="middle"
-              fontSize={Math.min(fuente, 60)} fill="#2a1d14" pointerEvents="none">
+              fontSize={fCentro} fill="#2a1d14" pointerEvents="none">
               <tspan x={c.x + c.largo / 2} dy="-0.6em">{c.etiqueta}</tspan>
               <tspan x={c.x + c.largo / 2} dy="1.2em">{`${c.largo} x ${c.ancho}`}</tspan>
             </text>
