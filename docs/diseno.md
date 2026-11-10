@@ -206,7 +206,12 @@ los bytes (solo JPG, PNG o WebP). Las fotos se atan a la `clave` (uuid) del mueb
 mantiene al editar el presupuesto; si se saca un mueble se borran sus fotos.
 `POST /presupuestos/{id}/fotos`, `GET` y `DELETE /presupuestos/{id}/fotos/{foto}`.
 
-Falta: que confirmar descuente del stock las placas, el canto y los insumos calculados.
+**Confirmar** un presupuesto de muebles descuenta del depósito elegido, además de los
+renglones sueltos, las placas, los metros de canto y los insumos calculados del despiece
+(todo en la misma transacción: si falta algo no se descuenta nada). Al cancelar se
+devuelve lo que salió según los movimientos de stock de la venta, no un recálculo.
+El **plano de cortes** (`/presupuestos/{id}/cortes`) se imprime con una hoja A4 con el
+despiece y los materiales y una hoja apaisada por placa, con la lista de piezas para tildar.
 
 ## Stock
 

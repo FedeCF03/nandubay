@@ -77,7 +77,7 @@ func TestConfirmarDescuentaStockPorProducto(t *testing.T) {
 		LineaNueva{Tipo: LineaProducto, ProductoID: 1, Cantidad: 1},
 		LineaNueva{Tipo: LineaProducto, ProductoID: 3, Cantidad: 4},
 	)
-	c, err := p.Confirmar(300)
+	c, err := p.Confirmar(300, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestConfirmarDescuentaStockPorProducto(t *testing.T) {
 		t.Errorf("con 2 placas no alcanza para 3: %v", err)
 	}
 	p.Estado = Confirmado
-	if _, err := p.Confirmar(300); !errors.Is(err, ErrEstado) {
+	if _, err := p.Confirmar(300, nil); !errors.Is(err, ErrEstado) {
 		t.Errorf("confirmar dos veces: %v", err)
 	}
 }
@@ -278,5 +278,30 @@ func TestMostradorSoloProductos(t *testing.T) {
 	p := Pedido{Tipo: Mostrador, Estado: Presupuesto}
 	if _, err := p.Editar(DatosVenta{}, ls); err == nil {
 		t.Error("editar un presupuesto de mostrador con un mueble")
+	}
+}
+
+func TestConfirmarMueblesDescuentaMateriales(t *testing.T) {
+	p := venta(t, Presupuesto,
+		LineaNueva{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 2, PrecioUnitario: f(1000)},
+		LineaNueva{Tipo: LineaProducto, ProductoID: 3, Cantidad: 4},
+	)
+	c, err := p.Confirmar(300, []Consumo{{1, 2}, {3, 6}, {4, 12.5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[int64]float64{}
+	for _, op := range c.Operaciones {
+		got[op.ProductoID] = -op.Cantidad
+	}
+	if len(c.Operaciones) != 3 || got[1] != 2 || got[3] != 10 || got[4] != 12.5 {
+		t.Errorf("operaciones = %v", got)
+	}
+	// Al cancelar vuelve lo que se descontó.
+	p.Estado, p.DepositoID = Confirmado, ptr(int64(300))
+	p.Consumido = []Consumo{{1, 2}, {3, 10}, {4, 12.5}}
+	c, err = p.Cancelar()
+	if err != nil || len(c.Operaciones) != 3 || c.Operaciones[2].Cantidad != 12.5 || c.Operaciones[2].Tipo != stock.MovDevolucion {
+		t.Errorf("cancelar: %v %+v", err, c.Operaciones)
 	}
 }

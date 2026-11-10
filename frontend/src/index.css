@@ -148,3 +148,11 @@
   .boleta { width: 210mm; min-height: 297mm; margin: 0; }
   .boleta * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* Plano de cortes: la hoja del despiece en A4 vertical y una placa por hoja apaisada. */
+.hoja-cortes * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+@page apaisada { size: A4 landscape; margin: 0; }
+@media print {
+  .hoja-cortes { margin: 0; break-after: page; }
+  .hoja-apaisada { page: apaisada; width: 297mm; height: 210mm; }
+}

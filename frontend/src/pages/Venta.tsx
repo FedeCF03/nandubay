@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useParams } from 'wouter'
 import {
-  ArrowLeft, Ban, CheckCircle2, CircleDollarSign, MapPin, MoreHorizontal, Pencil, Printer, Truck, Undo2,
+  ArrowLeft, Ban, CheckCircle2, CircleDollarSign, MapPin, MoreHorizontal, Pencil, Printer, Scissors, Truck, Undo2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -96,6 +96,9 @@ export default function Venta() {
           <Button variant="outline" asChild>
             <Link href={`/ventas/${v.id}/boleta`}><Printer /> {esPresupuesto ? 'Imprimir presupuesto' : 'Imprimir boleta'}</Link>
           </Button>
+          {muebles && (
+            <Button variant="outline" asChild><Link href={`/presupuestos/${v.id}/cortes`}><Scissors /> Plano de cortes</Link></Button>
+          )}
           {esPresupuesto && edita && (
             <Button variant="outline" asChild><Link href={`${base}/${v.id}/editar`}><Pencil /> Editar</Link></Button>
           )}

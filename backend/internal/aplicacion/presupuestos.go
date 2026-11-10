@@ -157,3 +157,38 @@ func (s *ServicioVentas) verPresupuesto(ctx context.Context, u *acceso.Usuario, 
 	}
 	return v, err
 }
+
+// materialesAConsumir calcula, para un presupuesto de muebles, las placas, el
+// canto y los insumos que salen del stock al confirmarlo. En una venta de
+// mostrador no hay nada extra: alcanza con los renglones.
+func (s *ServicioVentas) materialesAConsumir(ctx context.Context, u *acceso.Usuario, id int64) ([]ventas.Consumo, error) {
+	v, err := s.VerVenta(ctx, u, id)
+	if err != nil || v.Tipo != ventas.Muebles {
+		return nil, err
+	}
+	ms, err := s.Repo.BuscarDespiece(ctx, u.CarpinteriaID, id)
+	if err != nil {
+		return nil, err
+	}
+	conDespiece := false
+	for _, m := range ms {
+		if len(m.Piezas) > 0 || len(m.Insumos) > 0 {
+			conDespiece = true
+		}
+	}
+	if !conDespiece {
+		return nil, nil
+	}
+	mat, err := s.calcular(ctx, u, ms)
+	if err != nil {
+		return nil, err
+	}
+	var out []ventas.Consumo
+	for _, p := range mat.Placas {
+		out = append(out, ventas.Consumo{ProductoID: p.ProductoID, Cantidad: float64(p.Cantidad)})
+	}
+	for _, c := range append(mat.Cantos, mat.Insumos...) {
+		out = append(out, ventas.Consumo{ProductoID: c.ProductoID, Cantidad: c.Cantidad})
+	}
+	return out, nil
+}

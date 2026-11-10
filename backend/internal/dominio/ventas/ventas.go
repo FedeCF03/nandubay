@@ -298,6 +298,16 @@ type Pedido struct {
 	FechaEntrega *string        `json:"fecha_entrega"`
 	CreadoEn     time.Time      `json:"creado_en"`
 	ConfirmadoEn *time.Time     `json:"confirmado_en"`
+	// Consumido es lo que salió del stock al confirmar, por producto (de los
+	// movimientos guardados). Al cancelar se devuelve exactamente eso.
+	Consumido []Consumo `json:"-"`
+}
+
+// Consumo es una cantidad de un producto del stock que usa la venta: los
+// renglones de productos o los materiales calculados de los muebles.
+type Consumo struct {
+	ProductoID int64   `json:"producto_id"`
+	Cantidad   float64 `json:"cantidad"`
 }
 
 func Redondear(x float64) float64 { return math.Round(x*100) / 100 }
@@ -397,7 +407,10 @@ func (p Pedido) Editar(d DatosVenta, lineas []Linea) (Cambio, error) {
 
 // Confirmar pasa el presupuesto a venta y descuenta el stock del depósito
 // elegido, que puede ser de otra sucursal.
-func (p Pedido) Confirmar(depositoID int64) (Cambio, error) {
+// Confirmar pasa el presupuesto a venta y descuenta del depósito los
+// productos de los renglones más los materiales de los muebles (placas,
+// canto e insumos calculados del despiece).
+func (p Pedido) Confirmar(depositoID int64, materiales []Consumo) (Cambio, error) {
 	if p.Estado != Presupuesto {
 		return Cambio{}, fmt.Errorf("%w: ya está confirmada", ErrEstado)
 	}
@@ -405,9 +418,8 @@ func (p Pedido) Confirmar(depositoID int64) (Cambio, error) {
 		return Cambio{}, ErrSinLineas
 	}
 	c := Cambio{Estado: ptr(Confirmado), DepositoID: &depositoID}
-	orden, porProducto := p.cantidadesPorProducto()
-	for _, id := range orden {
-		op, err := stock.Venta(id, depositoID, porProducto[id], fmt.Sprintf("Venta N° %d", p.Numero))
+	for _, x := range sumarConsumos(append(p.consumosDeLineas(), materiales...)) {
+		op, err := stock.Venta(x.ProductoID, depositoID, x.Cantidad, fmt.Sprintf("Venta N° %d", p.Numero))
 		if err != nil {
 			return Cambio{}, err
 		}
@@ -532,9 +544,14 @@ func (p Pedido) Cancelar() (Cambio, error) {
 	}
 	c := Cambio{Estado: ptr(Cancelado)}
 	if p.confirmada() && p.DepositoID != nil {
-		orden, porProducto := p.cantidadesPorProducto()
-		for _, id := range orden {
-			op, err := stock.Devolucion(id, *p.DepositoID, porProducto[id], fmt.Sprintf("Venta N° %d cancelada", p.Numero))
+		// Se devuelve lo que salió del stock; si no está registrado (ventas
+		// viejas), lo que dicen los renglones.
+		devolver := p.Consumido
+		if len(devolver) == 0 {
+			devolver = sumarConsumos(p.consumosDeLineas())
+		}
+		for _, x := range devolver {
+			op, err := stock.Devolucion(x.ProductoID, *p.DepositoID, x.Cantidad, fmt.Sprintf("Venta N° %d cancelada", p.Numero))
 			if err != nil {
 				return Cambio{}, err
 			}
@@ -544,21 +561,34 @@ func (p Pedido) Cancelar() (Cambio, error) {
 	return c, nil
 }
 
-// cantidadesPorProducto suma los renglones de un mismo producto, en el orden
-// en que aparecen, para mover el stock una sola vez por producto.
-func (p Pedido) cantidadesPorProducto() ([]int64, map[int64]float64) {
-	total := map[int64]float64{}
-	var orden []int64
+// consumosDeLineas son los renglones de productos del stock.
+func (p Pedido) consumosDeLineas() []Consumo {
+	var out []Consumo
 	for _, l := range p.Lineas {
-		if l.Tipo != LineaProducto {
+		if l.Tipo == LineaProducto {
+			out = append(out, Consumo{l.ProductoID, l.Cantidad})
+		}
+	}
+	return out
+}
+
+// sumarConsumos junta las cantidades de un mismo producto, en el orden en que
+// aparecen, para mover el stock una sola vez por producto.
+func sumarConsumos(cs []Consumo) []Consumo {
+	var out []Consumo
+	pos := map[int64]int{}
+	for _, x := range cs {
+		if x.Cantidad <= 0 {
 			continue
 		}
-		if _, ok := total[l.ProductoID]; !ok {
-			orden = append(orden, l.ProductoID)
+		if i, ok := pos[x.ProductoID]; ok {
+			out[i].Cantidad += x.Cantidad
+			continue
 		}
-		total[l.ProductoID] += l.Cantidad
+		pos[x.ProductoID] = len(out)
+		out = append(out, x)
 	}
-	return orden, total
+	return out
 }
 
 func numero(f float64) string {
