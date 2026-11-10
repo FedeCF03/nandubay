@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { usePermiso } from '@/auth/sesion'
 import { cn } from '@/lib/utils'
 import { fmtPesos } from '@/stock/api'
-import { colorEstado, fmtFecha, nombreEstado, numeroVenta, useVentas, type ResumenVenta } from '@/ventas/api'
+import { colorEstado, fmtFecha, nombreEstado, numeroVenta, useVentas, type ResumenVenta, type TipoVenta } from '@/ventas/api'
 import { ProductosVendidos } from '@/ventas/ProductosVendidos'
 
 export function EstadoBadge({ estado, className }: { estado: ResumenVenta['estado']; className?: string }) {
@@ -44,16 +44,18 @@ export default function Ventas() {
           <TabsTrigger value="vendidos"><BarChart3 /> Productos vendidos</TabsTrigger>
         </TabsList>
       </Tabs>
-      {vista === 'boletas' ? <ListaVentas /> : <ProductosVendidos />}
+      {vista === 'boletas' ? <ListaVentas tipo="mostrador" /> : <ProductosVendidos />}
     </div>
   )
 }
 
-function ListaVentas() {
+// ListaVentas es el historial de ventas de un tipo, con filtros por estado.
+export function ListaVentas({ tipo }: { tipo: TipoVenta }) {
+  const base = tipo === 'muebles' ? '/presupuestos' : '/ventas'
   const [estado, setEstado] = useState('')
   const [buscar, setBuscar] = useState('')
   const [, navegar] = useLocation()
-  const ventas = useVentas('mostrador', estado, buscar)
+  const ventas = useVentas(tipo, estado, buscar)
   const crea = usePermiso('pedidos.editar')
   const lista = ventas.data ?? []
 
@@ -83,9 +85,11 @@ function ListaVentas() {
       ) : lista.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed py-16 text-center">
           <Receipt className="size-10 text-muted-foreground" />
-          <p className="font-medium">{buscar || estado ? 'No hay ventas que coincidan.' : 'Todavía no hay ventas.'}</p>
+          <p className="font-medium">{buscar || estado ? 'No hay ventas que coincidan.' : tipo === 'muebles' ? 'Todavía no hay presupuestos de muebles.' : 'Todavía no hay ventas.'}</p>
           {crea && !buscar && !estado && (
-            <Button variant="outline" asChild><Link href="/ventas/nueva"><Plus /> Hacer la primera venta</Link></Button>
+            <Button variant="outline" asChild>
+              <Link href={tipo === 'muebles' ? '/presupuestos/nuevo' : '/ventas/nueva'}><Plus /> {tipo === 'muebles' ? 'Hacer el primer presupuesto' : 'Hacer la primera venta'}</Link>
+            </Button>
           )}
         </div>
       ) : (
@@ -105,9 +109,9 @@ function ListaVentas() {
               </TableHeader>
               <TableBody>
                 {lista.map((v) => (
-                  <TableRow key={v.id} className="cursor-pointer" onClick={() => navegar(`/ventas/${v.id}`)}>
+                  <TableRow key={v.id} className="cursor-pointer" onClick={() => navegar(`${base}/${v.id}`)}>
                     <TableCell className="pl-4 font-mono text-sm">
-                      <Link href={`/ventas/${v.id}`} className="hover:underline">{numeroVenta(v.numero)}</Link>
+                      <Link href={`${base}/${v.id}`} className="hover:underline">{numeroVenta(v.numero)}</Link>
                       <div className="font-sans text-xs text-muted-foreground">{fmtFecha(v.fecha)}</div>
                     </TableCell>
                     <TableCell className="font-medium">{v.cliente}</TableCell>
@@ -124,7 +128,7 @@ function ListaVentas() {
 
           <div className="space-y-2 md:hidden">
             {lista.map((v) => (
-              <Link key={v.id} href={`/ventas/${v.id}`}>
+              <Link key={v.id} href={`${base}/${v.id}`}>
                 <Card className="gap-1 px-4 py-3 active:bg-accent">
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate font-medium">{v.cliente}</span>

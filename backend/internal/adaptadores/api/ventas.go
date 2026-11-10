@@ -11,6 +11,7 @@ import (
 
 	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/ventas"
 )
 
@@ -29,6 +30,11 @@ type CasosVentas interface {
 	Retirar(ctx context.Context, u *acceso.Usuario, id int64, items []ventas.RetiroItem, nota string) (aplicacion.VentaVista, error)
 	Cancelar(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.VentaVista, error)
 	ProductosVendidos(ctx context.Context, u *acceso.Usuario, f aplicacion.FiltroVendidos) ([]aplicacion.ProductoVendido, error)
+
+	CalcularMateriales(ctx context.Context, u *acceso.Usuario, ms []muebles.Mueble) (muebles.Materiales, error)
+	CrearPresupuestoMuebles(ctx context.Context, u *acceso.Usuario, d ventas.DatosVenta, ms []muebles.Mueble) (aplicacion.PresupuestoMuebles, error)
+	EditarPresupuestoMuebles(ctx context.Context, u *acceso.Usuario, id int64, d ventas.DatosVenta, ms []muebles.Mueble) (aplicacion.PresupuestoMuebles, error)
+	VerPresupuestoMuebles(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.PresupuestoMuebles, error)
 }
 
 func (s *Servidor) rutasVentas(r chi.Router) {
@@ -46,14 +52,22 @@ func (s *Servidor) rutasVentas(r chi.Router) {
 	r.With(requierePermiso("pedidos.estado")).Post("/ventas/{id}/estado", s.cambiarEstado)
 	r.With(requierePermiso("pagos.registrar")).Post("/ventas/{id}/pagos", s.registrarPago)
 	r.With(requierePermiso("retiros.registrar")).Post("/ventas/{id}/retiros", s.registrarRetiro)
+
+	r.With(requierePermiso("pedidos.editar")).Post("/presupuestos/calcular", s.calcularMateriales)
+	r.With(requierePermiso("pedidos.editar")).Post("/presupuestos", s.crearPresupuestoMuebles)
+	r.With(requierePermiso("pedidos.ver")).Get("/presupuestos/{id}", s.verPresupuestoMuebles)
+	r.With(requierePermiso("pedidos.editar")).Put("/presupuestos/{id}", s.editarPresupuestoMuebles)
 }
 
 // responderErrorVentas traduce los errores del dominio a códigos HTTP.
 func responderErrorVentas(w http.ResponseWriter, r *http.Request, err error) {
 	var val ventas.ErrValidacion
+	var valMueble muebles.ErrValidacion
 	switch {
 	case errors.As(err, &val):
 		responderJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": val.Mensaje, "campo": val.Campo})
+	case errors.As(err, &valMueble):
+		responderJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": valMueble.Mensaje, "campo": valMueble.Campo})
 	case errors.Is(err, ventas.ErrNoEncontrado):
 		responderError(w, http.StatusNotFound, "no se encontró la venta o el cliente")
 	case errors.Is(err, ventas.ErrEstado), errors.Is(err, ventas.ErrConPagos), errors.Is(err, ventas.ErrConRetiros):
@@ -252,3 +266,56 @@ var zonaHoraria = func() *time.Location {
 	}
 	return time.Local
 }()
+
+type presupuestoMuebles struct {
+	ventas.DatosVenta
+	Muebles []muebles.Mueble `json:"muebles"`
+}
+
+func (s *Servidor) responderPresupuesto(w http.ResponseWriter, r *http.Request, status int) func(aplicacion.PresupuestoMuebles, error) {
+	return func(p aplicacion.PresupuestoMuebles, err error) {
+		if err != nil {
+			responderErrorVentas(w, r, err)
+			return
+		}
+		responderJSON(w, status, p)
+	}
+}
+
+func (s *Servidor) calcularMateriales(w http.ResponseWriter, r *http.Request) {
+	var in presupuestoMuebles
+	if !leerJSON(w, r, &in) {
+		return
+	}
+	mat, err := s.Ventas.CalcularMateriales(r.Context(), UsuarioDe(r.Context()), in.Muebles)
+	if err != nil {
+		responderErrorVentas(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusOK, mat)
+}
+
+func (s *Servidor) crearPresupuestoMuebles(w http.ResponseWriter, r *http.Request) {
+	var in presupuestoMuebles
+	if !leerJSON(w, r, &in) {
+		return
+	}
+	s.responderPresupuesto(w, r, http.StatusCreated)(s.Ventas.CrearPresupuestoMuebles(r.Context(), UsuarioDe(r.Context()), in.DatosVenta, in.Muebles))
+}
+
+func (s *Servidor) editarPresupuestoMuebles(w http.ResponseWriter, r *http.Request) {
+	id, ok := idDe(w, r)
+	var in presupuestoMuebles
+	if !ok || !leerJSON(w, r, &in) {
+		return
+	}
+	s.responderPresupuesto(w, r, http.StatusOK)(s.Ventas.EditarPresupuestoMuebles(r.Context(), UsuarioDe(r.Context()), id, in.DatosVenta, in.Muebles))
+}
+
+func (s *Servidor) verPresupuestoMuebles(w http.ResponseWriter, r *http.Request) {
+	id, ok := idDe(w, r)
+	if !ok {
+		return
+	}
+	s.responderPresupuesto(w, r, http.StatusOK)(s.Ventas.VerPresupuestoMuebles(r.Context(), UsuarioDe(r.Context()), id))
+}

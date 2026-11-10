@@ -25,7 +25,7 @@ export default function Boleta() {
   return (
     <div className="min-h-svh bg-muted/60 print:bg-white">
       <div className="no-imprimir sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-background/95 px-4 py-2 backdrop-blur">
-        <Button variant="ghost" asChild><Link href={`/ventas/${venta.data.id}`}><ArrowLeft /> Volver</Link></Button>
+        <Button variant="ghost" asChild><Link href={`${venta.data.tipo === 'muebles' ? '/presupuestos' : '/ventas'}/${venta.data.id}`}><ArrowLeft /> Volver</Link></Button>
         <Button onClick={() => window.print()}><Printer /> Imprimir</Button>
       </div>
       <div className="overflow-x-auto py-6 print:overflow-visible print:py-0">

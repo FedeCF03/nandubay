@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/ventas"
 )
@@ -152,6 +153,7 @@ type VentaNueva struct {
 	VendedorID int64
 	Datos      ventas.DatosVenta
 	Lineas     []ventas.Linea
+	Despiece   []muebles.Mueble // en un presupuesto de muebles, uno por línea
 }
 
 // RepositorioVentas persiste clientes y ventas. Devuelve ventas.ErrNoEncontrado
@@ -170,6 +172,8 @@ type RepositorioVentas interface {
 	// falla no se guarda nada.
 	Modificar(ctx context.Context, carpinteriaID, usuarioID, id int64, fn func(ventas.Pedido) (ventas.Cambio, error)) error
 	ProductosVendidos(ctx context.Context, carpinteriaID int64, f FiltroVendidos) ([]ProductoVendido, error)
+	// BuscarDespiece trae los muebles de un presupuesto con sus piezas e insumos.
+	BuscarDespiece(ctx context.Context, carpinteriaID, pedidoID int64) ([]muebles.Mueble, error)
 }
 
 // FiltroVendidos limita el resumen de productos vendidos. Cuenta las ventas
