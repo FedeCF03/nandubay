@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { useUsuario } from '@/auth/sesion'
+import { usePresupuesto } from '@/presupuestos/api'
 import { cn } from '@/lib/utils'
 import { fmtNumero, fmtPesos, unidadCorta, useDepositos, useProductos } from '@/stock/api'
 import { mediosPago, pendiente, useAccionVenta, type Pago, type Venta } from './api'
@@ -47,13 +48,19 @@ export function DialogoConfirmar({ venta, onClose }: { venta: Venta; onClose: ()
   const accion = useAccionVenta(venta.id)
   const depositos = useDepositos().data ?? []
   const productos = useProductos({ tipo: '', buscar: '' }).data ?? []
+  const muebles = venta.tipo === 'muebles'
+  const presupuesto = usePresupuesto(muebles ? venta.id : 0)
+  const mat = presupuesto.data?.materiales
 
-  // Cuánto hace falta de cada producto.
+  // Cuánto hace falta de cada producto: los renglones sueltos y, en un
+  // presupuesto de muebles, las placas, el canto y los herrajes calculados.
   const necesita = useMemo(() => {
     const m = new Map<number, number>()
-    for (const l of venta.lineas) if (l.tipo === 'producto' && l.producto_id) m.set(l.producto_id, (m.get(l.producto_id) ?? 0) + l.cantidad)
+    const sumar = (id: number, c: number) => m.set(id, (m.get(id) ?? 0) + c)
+    for (const l of venta.lineas) if (l.tipo === 'producto' && l.producto_id) sumar(l.producto_id, l.cantidad)
+    if (mat) for (const x of [...mat.placas, ...mat.cantos, ...mat.insumos]) sumar(x.producto_id, x.cantidad)
     return m
-  }, [venta.lineas])
+  }, [venta.lineas, mat])
 
   const faltantes = (depositoID: number) => {
     const out: string[] = []
@@ -72,8 +79,10 @@ export function DialogoConfirmar({ venta, onClose }: { venta: Venta; onClose: ()
 
   return (
     <Marco titulo={`Confirmar venta N° ${venta.numero}`} onClose={onClose} pendiente={accion.isPending} error={accion.error}
-      desc="Se descuenta el stock del depósito que elijas. El cliente retira en la sucursal de ese depósito."
-      boton="Confirmar y descontar stock" deshabilitado={!actual || actual.faltan.length > 0}
+      desc={muebles
+        ? 'Se descuentan las placas, el canto y los herrajes calculados del depósito que elijas. El cliente retira los muebles en la sucursal de ese depósito.'
+        : 'Se descuenta el stock del depósito que elijas. El cliente retira en la sucursal de ese depósito.'}
+      boton="Confirmar y descontar stock" deshabilitado={!actual || actual.faltan.length > 0 || (muebles && presupuesto.isPending)}
       onSubmit={() => actual && accion.mutate({ accion: 'confirmar', deposito_id: actual.id }, { onSuccess: onClose })}>
       <div className="grid gap-2" role="radiogroup" aria-label="Depósito de salida">
         {opciones.map((d) => {

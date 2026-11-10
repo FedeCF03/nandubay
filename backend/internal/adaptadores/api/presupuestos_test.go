@@ -129,3 +129,57 @@ func TestPresupuestoDeMuebles(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestConfirmarPresupuestoDescuentaMateriales(t *testing.T) {
+	_, _, c, _, blanca, _, laPlata := prepararVenta(t) // 5 placas blancas en La Plata
+	_, canto := c.pedir("POST", "/api/v1/productos", map[string]any{
+		"tipo": "canto", "sku": "CAN-BL", "nombre": "Canto blanco", "unidad": "m", "costo": 100, "precio_venta": 200,
+	})
+	_, bisagra := c.pedir("POST", "/api/v1/productos", map[string]any{
+		"tipo": "herraje", "sku": "BIS", "nombre": "Bisagra", "costo": 500, "precio_venta": 900,
+	})
+	ingreso := func(id int64, cant float64) {
+		if st, r := c.pedir("POST", "/api/v1/stock/ingresos", map[string]any{"producto_id": id, "deposito_id": laPlata, "cantidad": cant}); st >= 300 {
+			t.Fatalf("ingreso: %d %v", st, r)
+		}
+	}
+	ingreso(idDeJSON(canto), 100)
+	_, cli := c.pedir("POST", "/api/v1/clientes", map[string]any{"nombre": "Ana"})
+	cuerpo := map[string]any{"cliente_id": idDeJSON(cli), "muebles": []any{map[string]any{
+		"nombre": "Alacena", "cantidad": 2, "precio_unitario": 50000,
+		"piezas": []map[string]any{{"placa_id": blanca, "largo": 700, "ancho": 300, "cantidad": 2,
+			"canto_id": idDeJSON(canto), "cantos": map[string]bool{"l1": true}}},
+		"insumos": []map[string]any{{"producto_id": idDeJSON(bisagra), "cantidad": 2}},
+	}}}
+	_, p := c.pedir("POST", "/api/v1/presupuestos", cuerpo)
+	id := idDeJSON(p["venta"].(map[string]any))
+	confirmar := "/api/v1/ventas/" + itoa(id) + "/confirmar"
+
+	// Sin bisagras en el depósito no se confirma nada.
+	if st, r := c.pedir("POST", confirmar, map[string]any{"deposito_id": laPlata}); st != http.StatusConflict && st != http.StatusUnprocessableEntity {
+		t.Fatalf("confirmar sin bisagras: %d %v", st, r)
+	} else if r["error"] == nil || stockEn(t, c, blanca, laPlata) != 5 {
+		t.Fatalf("se descontó algo igual: %v", r)
+	}
+	ingreso(idDeJSON(bisagra), 10)
+	if st, r := c.pedir("POST", confirmar, map[string]any{"deposito_id": laPlata}); st != http.StatusOK {
+		t.Fatalf("confirmar: %d %v", st, r)
+	}
+	// 4 piezas de 700×300 entran en 1 placa; canto: 4 × (700+30) mm; 4 bisagras.
+	if got := stockEn(t, c, blanca, laPlata); got != 4 {
+		t.Errorf("placas = %v, esperaba 4", got)
+	}
+	if got := stockEn(t, c, idDeJSON(canto), laPlata); got != 100-2.92 {
+		t.Errorf("canto = %v, esperaba 97.08", got)
+	}
+	if got := stockEn(t, c, idDeJSON(bisagra), laPlata); got != 6 {
+		t.Errorf("bisagras = %v, esperaba 6", got)
+	}
+	// Cancelar devuelve todo.
+	if st, r := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/cancelar", nil); st != http.StatusOK {
+		t.Fatalf("cancelar: %d %v", st, r)
+	}
+	if stockEn(t, c, blanca, laPlata) != 5 || stockEn(t, c, idDeJSON(canto), laPlata) != 100 || stockEn(t, c, idDeJSON(bisagra), laPlata) != 10 {
+		t.Error("cancelar no devolvió los materiales")
+	}
+}

@@ -194,13 +194,34 @@ func cargarVenta(ctx context.Context, tx pgx.Tx, id int64) (ventas.Pedido, error
 		p.FechaEntrega = &s
 	}
 
+	// Lo que salió del stock al confirmar, para devolverlo igual si se cancela.
+	rows, err := tx.Query(ctx, `
+		SELECT producto_id, -sum(cantidad)::float8 FROM stock_movimientos
+		WHERE pedido_id = $1 AND tipo = 'venta'
+		GROUP BY producto_id ORDER BY min(id)`, id)
+	if err != nil {
+		return p, err
+	}
+	for rows.Next() {
+		var x ventas.Consumo
+		if err := rows.Scan(&x.ProductoID, &x.Cantidad); err != nil {
+			rows.Close()
+			return p, err
+		}
+		p.Consumido = append(p.Consumido, x)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return p, err
+	}
+
 	// Renglones: productos y muebles, en el orden en que se cargaron.
 	type conOrden struct {
 		orden int
 		l     ventas.Linea
 	}
 	var lineas []conOrden
-	rows, err := tx.Query(ctx, `
+	rows, err = tx.Query(ctx, `
 		SELECT i.id, i.orden, i.producto_id, pr.tipo, coalesce(i.descripcion, pr.nombre),
 		       i.cantidad::float8, i.precio_unitario::float8, i.costo_unitario::float8, i.retirado::float8
 		FROM pedido_items i JOIN productos pr ON pr.id = i.producto_id

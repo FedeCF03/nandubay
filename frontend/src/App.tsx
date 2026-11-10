@@ -15,6 +15,7 @@ const Venta = lazy(() => import('@/pages/Venta'))
 const FormVenta = lazy(() => import('@/pages/FormVenta'))
 const Presupuestos = lazy(() => import('@/pages/Presupuestos'))
 const FormPresupuesto = lazy(() => import('@/pages/FormPresupuesto'))
+const PlanoCortes = lazy(() => import('@/pages/PlanoCortes'))
 const Boleta = lazy(() => import('@/pages/Boleta'))
 const Proximamente = lazy(() => import('@/pages/Proximamente'))
 
@@ -30,6 +31,7 @@ export default function App() {
   const yo = useYo()
   // La boleta se muestra sola, sin menú, para imprimirla en A4.
   const [esBoleta] = useRoute('/ventas/:id/boleta')
+  const [esPlano] = useRoute('/presupuestos/:id/cortes')
   if (yo.isPending) return <Cargando />
   if (yo.isError) {
     if (yo.error instanceof ErrorApi && yo.error.estado === 401) {
@@ -44,7 +46,7 @@ export default function App() {
   }
   return (
     <SesionContext.Provider value={yo.data}>
-      {esBoleta ? <Suspense fallback={<Cargando />}><Boleta /></Suspense> : (
+      {esBoleta || esPlano ? <Suspense fallback={<Cargando />}>{esBoleta ? <Boleta /> : <PlanoCortes />}</Suspense> : (
       <AppLayout>
         <Switch>
           <Route path="/" component={Inicio} />
