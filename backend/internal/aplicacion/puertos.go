@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/ventas"
 )
@@ -152,6 +153,7 @@ type VentaNueva struct {
 	VendedorID int64
 	Datos      ventas.DatosVenta
 	Lineas     []ventas.Linea
+	Despiece   []muebles.Mueble // en un presupuesto de muebles, uno por línea
 }
 
 // RepositorioVentas persiste clientes y ventas. Devuelve ventas.ErrNoEncontrado
@@ -170,6 +172,30 @@ type RepositorioVentas interface {
 	// falla no se guarda nada.
 	Modificar(ctx context.Context, carpinteriaID, usuarioID, id int64, fn func(ventas.Pedido) (ventas.Cambio, error)) error
 	ProductosVendidos(ctx context.Context, carpinteriaID int64, f FiltroVendidos) ([]ProductoVendido, error)
+	// BuscarDespiece trae los muebles de un presupuesto con sus piezas e insumos.
+	BuscarDespiece(ctx context.Context, carpinteriaID, pedidoID int64) ([]muebles.Mueble, error)
+
+	// Fotos de los muebles de un presupuesto.
+	ListarFotos(ctx context.Context, carpinteriaID, pedidoID int64) ([]FotoMueble, error)
+	// AgregarFoto devuelve ventas.ErrNoEncontrado si el mueble no es de ese
+	// presupuesto y ErrDemasiadasFotos si ya tiene el máximo.
+	AgregarFoto(ctx context.Context, carpinteriaID, usuarioID, pedidoID int64, f FotoNueva) (FotoMueble, error)
+	BuscarFoto(ctx context.Context, carpinteriaID, pedidoID, fotoID int64) (tipo string, datos []byte, err error)
+	BorrarFoto(ctx context.Context, carpinteriaID, pedidoID, fotoID int64) error
+}
+
+// FotoMueble es una foto de un mueble del presupuesto (sin la imagen).
+type FotoMueble struct {
+	ID          int64     `json:"id"`
+	MuebleClave string    `json:"mueble_clave"`
+	CreadoEn    time.Time `json:"creado_en"`
+}
+
+// FotoNueva es una foto a guardar, ya controlada.
+type FotoNueva struct {
+	MuebleClave string
+	Tipo        string
+	Datos       []byte
 }
 
 // FiltroVendidos limita el resumen de productos vendidos. Cuenta las ventas

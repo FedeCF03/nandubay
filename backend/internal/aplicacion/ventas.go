@@ -135,7 +135,12 @@ func (s *ServicioVentas) EditarPresupuesto(ctx context.Context, u *acceso.Usuari
 		return VentaVista{}, err
 	}
 	d = limpiarDatos(d)
-	return s.modificar(ctx, u, id, func(p ventas.Pedido) (ventas.Cambio, error) { return p.Editar(d, lineas) })
+	return s.modificar(ctx, u, id, func(p ventas.Pedido) (ventas.Cambio, error) {
+		if p.Tipo == ventas.Muebles {
+			return ventas.Cambio{}, ventas.ErrValidacion{Campo: "lineas", Mensaje: "un presupuesto de muebles se edita desde presupuestos de muebles"}
+		}
+		return p.Editar(d, lineas)
+	})
 }
 
 func (s *ServicioVentas) Confirmar(ctx context.Context, u *acceso.Usuario, id, depositoID int64) (VentaVista, error) {

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
 )
 
@@ -94,14 +95,32 @@ const (
 	Muebles   TipoVenta = "muebles"
 )
 
+// LineasDeMuebles arma una línea por mueble del presupuesto. costos es el
+// costo de materiales de cada unidad (para el margen).
+func LineasDeMuebles(ms []muebles.Mueble, costos []float64) []Linea {
+	out := make([]Linea, len(ms))
+	for i, m := range ms {
+		out[i] = Linea{
+			Tipo: LineaMueble, Descripcion: m.Nombre, Unidad: "unidad",
+			AnchoMM: m.AnchoMM, AltoMM: m.AltoMM, ProfundidadMM: m.ProfundidadMM,
+			Cantidad: float64(m.Cantidad), PrecioUnitario: Redondear(m.Precio),
+		}
+		if i < len(costos) {
+			out[i].CostoUnitario = costos[i]
+		}
+	}
+	return out
+}
+
 // ControlarLineas dice si las líneas corresponden al tipo de venta: en el
 // mostrador solo se venden productos del stock.
 func ControlarLineas(t TipoVenta, ls []Linea) error {
-	if t == Mostrador {
-		for _, l := range ls {
-			if l.Tipo != LineaProducto {
-				return ErrValidacion{"lineas", "en el mostrador solo se venden productos del stock: los muebles van en presupuestos de muebles"}
-			}
+	for _, l := range ls {
+		if t == Mostrador && l.Tipo != LineaProducto {
+			return ErrValidacion{"lineas", "en el mostrador solo se venden productos del stock: los muebles van en presupuestos de muebles"}
+		}
+		if t == Muebles && l.Tipo != LineaMueble {
+			return ErrValidacion{"lineas", "un presupuesto de muebles lleva muebles: los productos sueltos se venden en el mostrador"}
 		}
 	}
 	return nil
@@ -341,6 +360,9 @@ type Cambio struct {
 	Operaciones []stock.Operacion
 	Pago        *Pago
 	Retiro      *RetiroNuevo
+	// Despiece acompaña a Lineas en un presupuesto de muebles: piezas e
+	// insumos de cada mueble, en el mismo orden que las líneas.
+	Despiece []muebles.Mueble
 }
 
 // DatosVenta son los datos generales que se editan mientras es presupuesto.

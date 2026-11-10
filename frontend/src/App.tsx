@@ -13,6 +13,8 @@ const Stock = lazy(() => import('@/pages/Stock'))
 const Ventas = lazy(() => import('@/pages/Ventas'))
 const Venta = lazy(() => import('@/pages/Venta'))
 const FormVenta = lazy(() => import('@/pages/FormVenta'))
+const Presupuestos = lazy(() => import('@/pages/Presupuestos'))
+const FormPresupuesto = lazy(() => import('@/pages/FormPresupuesto'))
 const Boleta = lazy(() => import('@/pages/Boleta'))
 const Proximamente = lazy(() => import('@/pages/Proximamente'))
 
@@ -52,6 +54,10 @@ export default function App() {
           <Route path="/ventas/nueva" component={FormVenta} />
           <Route path="/ventas/:id/editar" component={FormVenta} />
           <Route path="/ventas/:id" component={Venta} />
+          <Route path="/presupuestos" component={Presupuestos} />
+          <Route path="/presupuestos/nuevo" component={FormPresupuesto} />
+          <Route path="/presupuestos/:id/editar" component={FormPresupuesto} />
+          <Route path="/presupuestos/:id" component={Venta} />
           <Route component={Proximamente} />
         </Switch>
       </AppLayout>

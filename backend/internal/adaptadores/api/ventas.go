@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/ventas"
 )
 
@@ -29,6 +32,15 @@ type CasosVentas interface {
 	Retirar(ctx context.Context, u *acceso.Usuario, id int64, items []ventas.RetiroItem, nota string) (aplicacion.VentaVista, error)
 	Cancelar(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.VentaVista, error)
 	ProductosVendidos(ctx context.Context, u *acceso.Usuario, f aplicacion.FiltroVendidos) ([]aplicacion.ProductoVendido, error)
+
+	CalcularMateriales(ctx context.Context, u *acceso.Usuario, ms []muebles.Mueble) (muebles.Materiales, error)
+	CrearPresupuestoMuebles(ctx context.Context, u *acceso.Usuario, d ventas.DatosVenta, ms []muebles.Mueble) (aplicacion.PresupuestoMuebles, error)
+	EditarPresupuestoMuebles(ctx context.Context, u *acceso.Usuario, id int64, d ventas.DatosVenta, ms []muebles.Mueble) (aplicacion.PresupuestoMuebles, error)
+	VerPresupuestoMuebles(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.PresupuestoMuebles, error)
+
+	AgregarFoto(ctx context.Context, u *acceso.Usuario, pedidoID int64, clave string, datos []byte) (aplicacion.FotoMueble, error)
+	VerFoto(ctx context.Context, u *acceso.Usuario, pedidoID, fotoID int64) (string, []byte, error)
+	BorrarFoto(ctx context.Context, u *acceso.Usuario, pedidoID, fotoID int64) error
 }
 
 func (s *Servidor) rutasVentas(r chi.Router) {
@@ -46,16 +58,31 @@ func (s *Servidor) rutasVentas(r chi.Router) {
 	r.With(requierePermiso("pedidos.estado")).Post("/ventas/{id}/estado", s.cambiarEstado)
 	r.With(requierePermiso("pagos.registrar")).Post("/ventas/{id}/pagos", s.registrarPago)
 	r.With(requierePermiso("retiros.registrar")).Post("/ventas/{id}/retiros", s.registrarRetiro)
+
+	r.With(requierePermiso("pedidos.editar")).Post("/presupuestos/calcular", s.calcularMateriales)
+	r.With(requierePermiso("pedidos.editar")).Post("/presupuestos", s.crearPresupuestoMuebles)
+	r.With(requierePermiso("pedidos.ver")).Get("/presupuestos/{id}", s.verPresupuestoMuebles)
+	r.With(requierePermiso("pedidos.editar")).Put("/presupuestos/{id}", s.editarPresupuestoMuebles)
+	r.With(requierePermiso("pedidos.editar")).Post("/presupuestos/{id}/fotos", s.agregarFoto)
+	r.With(requierePermiso("pedidos.ver")).Get("/presupuestos/{id}/fotos/{foto}", s.verFoto)
+	r.With(requierePermiso("pedidos.editar")).Delete("/presupuestos/{id}/fotos/{foto}", s.borrarFoto)
 }
 
 // responderErrorVentas traduce los errores del dominio a códigos HTTP.
 func responderErrorVentas(w http.ResponseWriter, r *http.Request, err error) {
 	var val ventas.ErrValidacion
+	var valMueble muebles.ErrValidacion
 	switch {
 	case errors.As(err, &val):
 		responderJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": val.Mensaje, "campo": val.Campo})
+	case errors.As(err, &valMueble):
+		responderJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": valMueble.Mensaje, "campo": valMueble.Campo})
 	case errors.Is(err, ventas.ErrNoEncontrado):
 		responderError(w, http.StatusNotFound, "no se encontró la venta o el cliente")
+	case errors.Is(err, aplicacion.ErrFotoInvalida):
+		responderError(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, aplicacion.ErrDemasiadasFotos):
+		responderError(w, http.StatusConflict, fmt.Sprintf("cada mueble puede tener hasta %d fotos", aplicacion.MaxFotosPorMueble))
 	case errors.Is(err, ventas.ErrEstado), errors.Is(err, ventas.ErrConPagos), errors.Is(err, ventas.ErrConRetiros):
 		responderError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ventas.ErrSinLineas), errors.Is(err, ventas.ErrSaldoPendiente),
@@ -252,3 +279,123 @@ var zonaHoraria = func() *time.Location {
 	}
 	return time.Local
 }()
+
+type presupuestoMuebles struct {
+	ventas.DatosVenta
+	Muebles []muebles.Mueble `json:"muebles"`
+}
+
+func (s *Servidor) responderPresupuesto(w http.ResponseWriter, r *http.Request, status int) func(aplicacion.PresupuestoMuebles, error) {
+	return func(p aplicacion.PresupuestoMuebles, err error) {
+		if err != nil {
+			responderErrorVentas(w, r, err)
+			return
+		}
+		responderJSON(w, status, p)
+	}
+}
+
+func (s *Servidor) calcularMateriales(w http.ResponseWriter, r *http.Request) {
+	var in presupuestoMuebles
+	if !leerJSON(w, r, &in) {
+		return
+	}
+	mat, err := s.Ventas.CalcularMateriales(r.Context(), UsuarioDe(r.Context()), in.Muebles)
+	if err != nil {
+		responderErrorVentas(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusOK, mat)
+}
+
+func (s *Servidor) crearPresupuestoMuebles(w http.ResponseWriter, r *http.Request) {
+	var in presupuestoMuebles
+	if !leerJSON(w, r, &in) {
+		return
+	}
+	s.responderPresupuesto(w, r, http.StatusCreated)(s.Ventas.CrearPresupuestoMuebles(r.Context(), UsuarioDe(r.Context()), in.DatosVenta, in.Muebles))
+}
+
+func (s *Servidor) editarPresupuestoMuebles(w http.ResponseWriter, r *http.Request) {
+	id, ok := idDe(w, r)
+	var in presupuestoMuebles
+	if !ok || !leerJSON(w, r, &in) {
+		return
+	}
+	s.responderPresupuesto(w, r, http.StatusOK)(s.Ventas.EditarPresupuestoMuebles(r.Context(), UsuarioDe(r.Context()), id, in.DatosVenta, in.Muebles))
+}
+
+func (s *Servidor) verPresupuestoMuebles(w http.ResponseWriter, r *http.Request) {
+	id, ok := idDe(w, r)
+	if !ok {
+		return
+	}
+	s.responderPresupuesto(w, r, http.StatusOK)(s.Ventas.VerPresupuestoMuebles(r.Context(), UsuarioDe(r.Context()), id))
+}
+
+func (s *Servidor) agregarFoto(w http.ResponseWriter, r *http.Request) {
+	id, ok := idDe(w, r)
+	if !ok {
+		return
+	}
+	// La imagen viaja en base64 dentro del JSON (así sigue valiendo la
+	// protección CSRF de soloJSON); por eso el límite es mayor que el común.
+	var in struct {
+		MuebleClave string `json:"mueble_clave"`
+		Datos       []byte `json:"datos"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, aplicacion.MaxBytesFoto*4/3+4096)).Decode(&in); err != nil {
+		responderError(w, http.StatusUnprocessableEntity, aplicacion.ErrFotoInvalida.Error())
+		return
+	}
+	f, err := s.Ventas.AgregarFoto(r.Context(), UsuarioDe(r.Context()), id, in.MuebleClave, in.Datos)
+	if err != nil {
+		responderErrorVentas(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusCreated, f)
+}
+
+func idFoto(w http.ResponseWriter, r *http.Request) (int64, int64, bool) {
+	id, ok := idDe(w, r)
+	if !ok {
+		return 0, 0, false
+	}
+	foto, err := strconv.ParseInt(chi.URLParam(r, "foto"), 10, 64)
+	if err != nil || foto <= 0 {
+		responderError(w, http.StatusBadRequest, "id inválido")
+		return 0, 0, false
+	}
+	return id, foto, true
+}
+
+func (s *Servidor) verFoto(w http.ResponseWriter, r *http.Request) {
+	id, foto, ok := idFoto(w, r)
+	if !ok {
+		return
+	}
+	tipo, datos, err := s.Ventas.VerFoto(r.Context(), UsuarioDe(r.Context()), id, foto)
+	if err != nil {
+		responderErrorVentas(w, r, err)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", tipo)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "default-src 'none'")
+	// Una foto no cambia nunca (si se borra, la nueva tiene otro id).
+	h.Set("Cache-Control", "private, max-age=31536000, immutable")
+	_, _ = w.Write(datos)
+}
+
+func (s *Servidor) borrarFoto(w http.ResponseWriter, r *http.Request) {
+	id, foto, ok := idFoto(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Ventas.BorrarFoto(r.Context(), UsuarioDe(r.Context()), id, foto); err != nil {
+		responderErrorVentas(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

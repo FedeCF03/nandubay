@@ -269,8 +269,11 @@ func TestMostradorSoloProductos(t *testing.T) {
 	if err := ControlarLineas(Mostrador, ls); err == nil {
 		t.Error("un mueble no se vende en el mostrador")
 	}
-	if err := ControlarLineas(Muebles, ls); err != nil {
+	if err := ControlarLineas(Muebles, ls[1:]); err != nil {
 		t.Error(err)
+	}
+	if err := ControlarLineas(Muebles, ls); err == nil {
+		t.Error("un producto suelto no va en un presupuesto de muebles")
 	}
 	p := Pedido{Tipo: Mostrador, Estado: Presupuesto}
 	if _, err := p.Editar(DatosVenta{}, ls); err == nil {

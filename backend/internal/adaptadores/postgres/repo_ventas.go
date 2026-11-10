@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/ventas"
 )
@@ -87,7 +88,8 @@ func (r *RepoVentas) BuscarProductos(ctx context.Context, carpinteriaID int64, i
 	}
 	err := EnCarpinteria(ctx, r.DB, carpinteriaID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT id, tipo, nombre, costo::float8, precio_venta::float8
+			SELECT id, tipo, nombre, costo::float8, precio_venta::float8,
+			       coalesce(largo_mm,0), coalesce(ancho_mm,0), tiene_veta, refilado_mm
 			FROM productos WHERE id = ANY($1) AND activo`, ids)
 		if err != nil {
 			return err
@@ -95,7 +97,7 @@ func (r *RepoVentas) BuscarProductos(ctx context.Context, carpinteriaID int64, i
 		defer rows.Close()
 		for rows.Next() {
 			var p stock.Producto
-			if err := rows.Scan(&p.ID, &p.Tipo, &p.Nombre, &p.Costo, &p.PrecioVenta); err != nil {
+			if err := rows.Scan(&p.ID, &p.Tipo, &p.Nombre, &p.Costo, &p.PrecioVenta, &p.LargoMM, &p.AnchoMM, &p.TieneVeta, &p.RefiladoMM); err != nil {
 				return err
 			}
 			out[p.ID] = p
@@ -341,7 +343,9 @@ func verificarCliente(ctx context.Context, tx pgx.Tx, id int64) error {
 	return nil
 }
 
-func guardarLineas(ctx context.Context, tx pgx.Tx, carpinteriaID, pedidoID int64, lineas []ventas.Linea) error {
+// guardarLineas reemplaza las líneas de la venta. En un presupuesto de
+// muebles, despiece trae las piezas e insumos de cada mueble (uno por línea).
+func guardarLineas(ctx context.Context, tx pgx.Tx, carpinteriaID, pedidoID int64, lineas []ventas.Linea, despiece []muebles.Mueble) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM pedido_items WHERE pedido_id = $1`, pedidoID); err != nil {
 		return err
 	}
@@ -357,18 +361,133 @@ func guardarLineas(ctx context.Context, tx pgx.Tx, carpinteriaID, pedidoID int64
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 				carpinteriaID, pedidoID, l.ProductoID, l.Descripcion, l.Cantidad, l.PrecioUnitario, l.CostoUnitario, i)
 		case ventas.LineaMueble:
-			_, err = tx.Exec(ctx, `
-				INSERT INTO pedido_muebles (carpinteria_id, pedido_id, nombre, ancho_mm, alto_mm, profundidad_mm, cantidad, precio_unitario, orden)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-				carpinteriaID, pedidoID, l.Descripcion, nulo(l.AnchoMM), nulo(l.AltoMM), nulo(l.ProfundidadMM), int(l.Cantidad), l.PrecioUnitario, i)
+			var muebleID int64
+			err = tx.QueryRow(ctx, `
+				INSERT INTO pedido_muebles (carpinteria_id, pedido_id, nombre, ancho_mm, alto_mm, profundidad_mm, cantidad, precio_unitario, orden, clave)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, coalesce(nullif($10, '')::uuid, gen_random_uuid())) RETURNING id`,
+				carpinteriaID, pedidoID, l.Descripcion, nulo(l.AnchoMM), nulo(l.AltoMM), nulo(l.ProfundidadMM), int(l.Cantidad), l.PrecioUnitario, i,
+				claveDe(despiece, i)).Scan(&muebleID)
+			if err == nil && i < len(despiece) {
+				err = guardarDespiece(ctx, tx, carpinteriaID, pedidoID, muebleID, despiece[i])
+			}
 		}
 		if err != nil {
+			return err
+		}
+	}
+	if despiece != nil {
+		// Las fotos de los muebles que se sacaron del presupuesto se borran.
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM mueble_fotos WHERE pedido_id = $1
+			AND mueble_clave NOT IN (SELECT clave FROM pedido_muebles WHERE pedido_id = $1)`, pedidoID); err != nil {
 			return err
 		}
 	}
 	p := ventas.Pedido{Lineas: lineas}
 	_, err := tx.Exec(ctx, `UPDATE pedidos SET total = $2, costo_total = $3 WHERE id = $1`, pedidoID, p.Total(), p.Costo())
 	return err
+}
+
+func claveDe(despiece []muebles.Mueble, i int) string {
+	if i < len(despiece) {
+		return despiece[i].Clave
+	}
+	return ""
+}
+
+// guardarDespiece guarda las piezas y los insumos de un mueble. Los productos
+// ya se buscaron con RLS al validar, así que son de esta carpintería.
+func guardarDespiece(ctx context.Context, tx pgx.Tx, carpinteriaID, pedidoID, muebleID int64, m muebles.Mueble) error {
+	for _, p := range m.Piezas {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO piezas (carpinteria_id, pedido_mueble_id, nombre, placa_id, largo_mm, ancho_mm, cantidad,
+			                    respeta_veta, canto_l1, canto_l2, canto_a1, canto_a2, canto_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+			carpinteriaID, muebleID, p.Nombre, p.PlacaID, p.Largo, p.Ancho, p.Cantidad, p.RespetaVeta,
+			p.Cantos.L1, p.Cantos.L2, p.Cantos.A1, p.Cantos.A2, nulo(p.CantoID)); err != nil {
+			return err
+		}
+	}
+	for i, ins := range m.Insumos {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO pedido_items (carpinteria_id, pedido_id, pedido_mueble_id, producto_id, cantidad, costo_unitario, orden)
+			VALUES ($1, $2, $3, $4, $5, (SELECT costo FROM productos WHERE id = $4), $6)`,
+			carpinteriaID, pedidoID, muebleID, ins.ProductoID, ins.Cantidad, i); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *RepoVentas) BuscarDespiece(ctx context.Context, carpinteriaID, pedidoID int64) ([]muebles.Mueble, error) {
+	var out []muebles.Mueble
+	err := EnCarpinteria(ctx, r.DB, carpinteriaID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT id, clave::text, nombre, coalesce(ancho_mm,0), coalesce(alto_mm,0), coalesce(profundidad_mm,0), cantidad, precio_unitario::float8
+			FROM pedido_muebles WHERE pedido_id = $1 ORDER BY orden, id`, pedidoID)
+		if err != nil {
+			return err
+		}
+		var ids []int64
+		indice := map[int64]int{}
+		for rows.Next() {
+			var id int64
+			var m muebles.Mueble
+			if err := rows.Scan(&id, &m.Clave, &m.Nombre, &m.AnchoMM, &m.AltoMM, &m.ProfundidadMM, &m.Cantidad, &m.Precio); err != nil {
+				rows.Close()
+				return err
+			}
+			m.Piezas, m.Insumos = []muebles.Pieza{}, []muebles.Insumo{}
+			indice[id] = len(out)
+			ids = append(ids, id)
+			out = append(out, m)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil || len(ids) == 0 {
+			return err
+		}
+		rows, err = tx.Query(ctx, `
+			SELECT pedido_mueble_id, nombre, placa_id, largo_mm, ancho_mm, cantidad, respeta_veta,
+			       canto_l1, canto_l2, canto_a1, canto_a2, coalesce(canto_id, 0)
+			FROM piezas WHERE pedido_mueble_id = ANY($1) ORDER BY id`, ids)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var mid int64
+			var p muebles.Pieza
+			if err := rows.Scan(&mid, &p.Nombre, &p.PlacaID, &p.Largo, &p.Ancho, &p.Cantidad, &p.RespetaVeta,
+				&p.Cantos.L1, &p.Cantos.L2, &p.Cantos.A1, &p.Cantos.A2, &p.CantoID); err != nil {
+				rows.Close()
+				return err
+			}
+			out[indice[mid]].Piezas = append(out[indice[mid]].Piezas, p)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		rows, err = tx.Query(ctx, `
+			SELECT pedido_mueble_id, producto_id, cantidad::float8
+			FROM pedido_items WHERE pedido_mueble_id = ANY($1) ORDER BY orden, id`, ids)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var mid int64
+			var ins muebles.Insumo
+			if err := rows.Scan(&mid, &ins.ProductoID, &ins.Cantidad); err != nil {
+				return err
+			}
+			out[indice[mid]].Insumos = append(out[indice[mid]].Insumos, ins)
+		}
+		return rows.Err()
+	})
+	if out == nil {
+		out = []muebles.Mueble{}
+	}
+	return out, err
 }
 
 func (r *RepoVentas) CrearVenta(ctx context.Context, carpinteriaID int64, v aplicacion.VentaNueva) (int64, error) {
@@ -390,7 +509,7 @@ func (r *RepoVentas) CrearVenta(ctx context.Context, carpinteriaID int64, v apli
 		if err != nil {
 			return err
 		}
-		if err := guardarLineas(ctx, tx, carpinteriaID, id, v.Lineas); err != nil {
+		if err := guardarLineas(ctx, tx, carpinteriaID, id, v.Lineas, v.Despiece); err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO pedido_estados (carpinteria_id, pedido_id, estado, usuario_id) VALUES ($1, $2, 'presupuesto', $3)`,
@@ -433,7 +552,7 @@ func (r *RepoVentas) Modificar(ctx context.Context, carpinteriaID, usuarioID, id
 			}
 		}
 		if c.Lineas != nil {
-			if err := guardarLineas(ctx, tx, carpinteriaID, id, c.Lineas); err != nil {
+			if err := guardarLineas(ctx, tx, carpinteriaID, id, c.Lineas, c.Despiece); err != nil {
 				return err
 			}
 		}

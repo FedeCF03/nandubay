@@ -151,7 +151,7 @@ cortes para el operario, y guardar el plan en `planes_corte` desde un pedido.
 ## Ventas y boletas
 
 Hay dos secciones: **ventas de mostrador** (solo productos del stock: placas, cantos,
-herrajes) y **presupuestos de muebles** (en construcción). Las dos usan la tabla
+herrajes) y **presupuestos de muebles** (ver más abajo). Las dos usan la tabla
 `pedidos` con la columna `tipo` (`mostrador` o `muebles`) y comparten boleta, pagos y
 retiros. El mostrador tiene un resumen de **productos vendidos** por período y sucursal
 (solo renglones sueltos, no los insumos de un mueble), con la ganancia sobre el costo.
@@ -176,6 +176,37 @@ retiros. El mostrador tiene un resumen de **productos vendidos** por período y 
   bloqueada (`SELECT … FOR UPDATE`), así dos operaciones a la vez no se pisan.
 - Permisos: `pedidos.ver/editar/confirmar/estado`, `pagos.registrar` y el nuevo
   `retiros.registrar` (Admin, Vendedor y Depósito).
+
+### Presupuestos de muebles
+
+Un presupuesto de muebles (`tipo = 'muebles'`) tiene uno o más muebles, y cada mueble:
+
+- sus **piezas** (tabla `piezas`): nombre opcional, placa del stock, largo × ancho,
+  cantidad por mueble, si respeta la veta, los lados con canto (L1 L2 A1 A2) y qué canto.
+  Cada pieza puede ser de una placa distinta (ej: 5 piezas blancas y 6 negras);
+- sus **herrajes e insumos** (`pedido_items` con `pedido_mueble_id`): bisagras, patas,
+  guías… por unidad de mueble. No se listan como renglones sueltos de la venta.
+
+`muebles.Calcular` junta las piezas de **todos** los muebles por placa (multiplicadas por
+la cantidad de cada mueble) y corre el optimizador una vez por placa, con la medida y el
+refilado del producto y sierra de 3 mm. Suma los metros de canto por producto (30 mm de
+merma por tramo) y los insumos, y da el costo total y el costo de cada mueble (las placas
+se reparten según la superficie de sus piezas). Los materiales no se guardan: se
+recalculan al ver el presupuesto, así siempre usan el costo actual.
+
+El precio de cada mueble se escribe a mano; si se deja vacío se usa el sugerido, costo +
+margen (el margen se recuerda en el navegador). API: `POST /presupuestos/calcular` (sin
+guardar, para ir viendo mientras se carga), `POST /presupuestos`, `GET` y
+`PUT /presupuestos/{id}`. Pagos, confirmación, boleta y retiros son los de cualquier venta.
+
+**Fotos**: cada mueble puede tener hasta 12 fotos (tabla `mueble_fotos`, en la base,
+con RLS). El navegador las achica a JPEG de 1600 px antes de subirlas y viajan en base64
+dentro del JSON, así sigue valiendo la protección CSRF. El servidor detecta el tipo por
+los bytes (solo JPG, PNG o WebP). Las fotos se atan a la `clave` (uuid) del mueble, que se
+mantiene al editar el presupuesto; si se saca un mueble se borran sus fotos.
+`POST /presupuestos/{id}/fotos`, `GET` y `DELETE /presupuestos/{id}/fotos/{foto}`.
+
+Falta: que confirmar descuente del stock las placas, el canto y los insumos calculados.
 
 ## Stock
 
