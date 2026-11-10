@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
 )
 
@@ -81,6 +82,46 @@ func (c *Cliente) Normalizar() error {
 	}
 	if c.Email != "" && !strings.Contains(c.Email, "@") {
 		return ErrValidacion{"email", "el email no es válido"}
+	}
+	return nil
+}
+
+// TipoVenta separa las ventas de mostrador (productos del stock) de los
+// presupuestos de muebles, que van en otra sección.
+type TipoVenta string
+
+const (
+	Mostrador TipoVenta = "mostrador"
+	Muebles   TipoVenta = "muebles"
+)
+
+// LineasDeMuebles arma una línea por mueble del presupuesto. costos es el
+// costo de materiales de cada unidad (para el margen).
+func LineasDeMuebles(ms []muebles.Mueble, costos []float64) []Linea {
+	out := make([]Linea, len(ms))
+	for i, m := range ms {
+		out[i] = Linea{
+			Tipo: LineaMueble, Descripcion: m.Nombre, Unidad: "unidad",
+			AnchoMM: m.AnchoMM, AltoMM: m.AltoMM, ProfundidadMM: m.ProfundidadMM,
+			Cantidad: float64(m.Cantidad), PrecioUnitario: Redondear(m.Precio),
+		}
+		if i < len(costos) {
+			out[i].CostoUnitario = costos[i]
+		}
+	}
+	return out
+}
+
+// ControlarLineas dice si las líneas corresponden al tipo de venta: en el
+// mostrador solo se venden productos del stock.
+func ControlarLineas(t TipoVenta, ls []Linea) error {
+	for _, l := range ls {
+		if t == Mostrador && l.Tipo != LineaProducto {
+			return ErrValidacion{"lineas", "en el mostrador solo se venden productos del stock: los muebles van en presupuestos de muebles"}
+		}
+		if t == Muebles && l.Tipo != LineaMueble {
+			return ErrValidacion{"lineas", "un presupuesto de muebles lleva muebles: los productos sueltos se venden en el mostrador"}
+		}
 	}
 	return nil
 }
@@ -241,6 +282,7 @@ type CambioEstado struct {
 type Pedido struct {
 	ID           int64          `json:"id"`
 	Numero       int            `json:"numero"`
+	Tipo         TipoVenta      `json:"tipo"`
 	Estado       Estado         `json:"estado"`
 	Sucursal     Lugar          `json:"sucursal"` // donde se vendió
 	DepositoID   *int64         `json:"deposito_id"`
@@ -318,6 +360,9 @@ type Cambio struct {
 	Operaciones []stock.Operacion
 	Pago        *Pago
 	Retiro      *RetiroNuevo
+	// Despiece acompaña a Lineas en un presupuesto de muebles: piezas e
+	// insumos de cada mueble, en el mismo orden que las líneas.
+	Despiece []muebles.Mueble
 }
 
 // DatosVenta son los datos generales que se editan mientras es presupuesto.
@@ -343,6 +388,9 @@ func (p Pedido) Editar(d DatosVenta, lineas []Linea) (Cambio, error) {
 	}
 	if len(lineas) == 0 {
 		return Cambio{}, ErrSinLineas
+	}
+	if err := ControlarLineas(p.Tipo, lineas); err != nil {
+		return Cambio{}, err
 	}
 	return Cambio{Lineas: lineas, Datos: &d}, nil
 }

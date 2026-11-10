@@ -1,15 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useParams } from 'wouter'
-import { ArrowLeft, Hammer, Loader2, Package, Plus, Search, Trash2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Package, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { detalle, fmtNumero, fmtPesos, unidadCorta, useProductos, type ProductoConStock } from '@/stock/api'
+import { fmtPesos, unidadCorta, type ProductoConStock } from '@/stock/api'
+import { BuscarProducto } from '@/ventas/BuscarProducto'
 import { useGuardarVenta, useVenta, type Cliente, type Venta } from '@/ventas/api'
 import { SelectorCliente } from '@/ventas/SelectorCliente'
 
@@ -37,47 +35,6 @@ function desdeVenta(v: Venta): LineaForm[] {
     ancho: texto(l.ancho_mm), alto: texto(l.alto_mm), prof: texto(l.profundidad_mm),
     cantidad: texto(l.cantidad), precio: String(l.precio_unitario).replace('.', ','),
   }))
-}
-
-function BuscarProducto({ onElegir, onClose }: { onElegir: (p: ProductoConStock) => void; onClose: () => void }) {
-  const [buscar, setBuscar] = useState('')
-  const productos = useProductos({ tipo: '', buscar })
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[85svh] grid-rows-[auto_auto_1fr]">
-        <DialogHeader>
-          <DialogTitle>Agregar producto</DialogTitle>
-          <DialogDescription>Placas, cantos o herrajes del stock.</DialogDescription>
-        </DialogHeader>
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-8" autoFocus placeholder="Nombre, código o color" value={buscar}
-            onChange={(e) => setBuscar(e.target.value)} aria-label="Buscar producto" />
-        </div>
-        <div className="-mx-2 min-h-0 overflow-y-auto">
-          {productos.isPending ? (
-            <div className="space-y-2 px-2">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-12" />)}</div>
-          ) : (productos.data ?? []).length === 0 ? (
-            <p className="px-2 py-6 text-center text-sm text-muted-foreground">No hay productos que coincidan.</p>
-          ) : (
-            (productos.data ?? []).map((p) => (
-              <button key={p.id} type="button" onClick={() => onElegir(p)}
-                className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-accent">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{p.nombre}</div>
-                  <div className="truncate text-xs text-muted-foreground">{detalle(p)}</div>
-                </div>
-                <div className="shrink-0 text-right text-sm">
-                  <div className="tabular-nums">{fmtPesos(p.precio_venta)}</div>
-                  <div className="text-xs text-muted-foreground">{fmtNumero(p.total)} {unidadCorta[p.unidad]} en stock</div>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
 }
 
 export default function FormVenta() {
@@ -116,10 +73,6 @@ function Formulario({ venta }: { venta?: Venta }) {
       ancho: '', alto: '', prof: '', cantidad: '1', precio: String(p.precio_venta).replace('.', ','),
     }])
   }
-  const agregarMueble = () =>
-    setLineas((ls) => [...ls, {
-      clave: siguiente++, tipo: 'mueble', descripcion: '', unidad: 'unidad', ancho: '', alto: '', prof: '', cantidad: '1', precio: '',
-    }])
 
   const enviar = () => {
     if (!cliente) return setError('Elegí el cliente.')
@@ -150,7 +103,7 @@ function Formulario({ venta }: { venta?: Venta }) {
         <Button variant="ghost" size="icon" asChild aria-label="Volver">
           <Link href={venta ? `/ventas/${venta.id}` : '/ventas'}><ArrowLeft /></Link>
         </Button>
-        <h2 className="text-2xl font-semibold tracking-tight">{venta ? `Editar presupuesto N° ${venta.numero}` : 'Nuevo presupuesto'}</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">{venta ? `Editar presupuesto N° ${venta.numero}` : 'Nueva venta'}</h2>
       </div>
 
       <Card>
@@ -163,13 +116,12 @@ function Formulario({ venta }: { venta?: Venta }) {
           <CardTitle>Detalle</CardTitle>
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="sm" onClick={() => setBuscando(true)}><Package /> Producto</Button>
-            <Button type="button" variant="outline" size="sm" onClick={agregarMueble}><Hammer /> Mueble a medida</Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {lineas.length === 0 && (
             <div className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
-              Agregá placas, cantos y herrajes del stock, o un mueble a medida.
+              Agregá placas, cantos y herrajes del stock.
             </div>
           )}
           {lineas.map((l, i) => {
@@ -241,7 +193,7 @@ function Formulario({ venta }: { venta?: Venta }) {
       <div className="flex justify-end gap-2 pb-6">
         <Button variant="outline" asChild><Link href={venta ? `/ventas/${venta.id}` : '/ventas'}>Cancelar</Link></Button>
         <Button onClick={enviar} disabled={guardar.isPending}>
-          {guardar.isPending ? <Loader2 className="animate-spin" /> : <Plus />} {venta ? 'Guardar cambios' : 'Guardar presupuesto'}
+          {guardar.isPending ? <Loader2 className="animate-spin" /> : <Plus />} {venta ? 'Guardar cambios' : 'Guardar'}
         </Button>
       </div>
 

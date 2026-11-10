@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/FedeCF03/nandubay/backend/internal/adaptadores/postgres"
 	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
@@ -87,11 +88,19 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 		"cliente_id": cliID, "notas": "Llamar antes", "fecha_entrega": "2026-12-01",
 		"lineas": []any{
 			map[string]any{"tipo": "producto", "producto_id": placaID, "cantidad": 3},
-			map[string]any{"tipo": "mueble", "descripcion": "Bajo mesada", "ancho_mm": 1200, "cantidad": 1, "precio_unitario": 90000},
+			map[string]any{"tipo": "producto", "producto_id": placaID, "descripcion": "Placa de exhibición", "cantidad": 1, "precio_unitario": 90000},
 		},
 	})
 	if st != http.StatusCreated {
 		t.Fatalf("crear presupuesto: %d %v", st, v)
+	}
+	if v["tipo"] != "mostrador" {
+		t.Errorf("tipo = %v", v["tipo"])
+	}
+	if st, _ := c.pedir("POST", "/api/v1/ventas", map[string]any{"cliente_id": cliID, "lineas": []any{
+		map[string]any{"tipo": "mueble", "descripcion": "Bajo mesada", "cantidad": 1, "precio_unitario": 90000},
+	}}); st != http.StatusUnprocessableEntity {
+		t.Fatalf("un mueble en el mostrador: %d", st)
 	}
 	vid := idDeJSON(v)
 	ruta := fmt.Sprintf("/api/v1/ventas/%d", vid)
@@ -107,7 +116,7 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 		"cliente_id": cliID,
 		"lineas": []any{
 			map[string]any{"tipo": "producto", "producto_id": placaID, "cantidad": 3, "precio_unitario": 65000},
-			map[string]any{"tipo": "mueble", "descripcion": "Bajo mesada", "cantidad": 1, "precio_unitario": 90000},
+			map[string]any{"tipo": "producto", "producto_id": placaID, "descripcion": "Placa de exhibición", "cantidad": 1, "precio_unitario": 90000},
 		},
 	})
 	if st != http.StatusOK || v["total"].(float64) != 3*65000+90000 {
@@ -123,8 +132,8 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 	if st != http.StatusOK || v["estado"] != "confirmado" {
 		t.Fatalf("confirmar: %d %v", st, v)
 	}
-	if got := stockEn(t, c, placaID, laPlata); got != 2 {
-		t.Fatalf("stock en La Plata = %v, esperaba 2", got)
+	if got := stockEn(t, c, placaID, laPlata); got != 1 {
+		t.Fatalf("stock en La Plata = %v, esperaba 1", got)
 	}
 	if v["retira"].(map[string]any)["nombre"] != "La Plata" || v["retira_aqui"] != false {
 		t.Fatalf("se retira en La Plata: %v %v", v["retira"], v["retira_aqui"])
@@ -137,7 +146,7 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 
 	lineas := v["lineas"].([]any)
 	placaLinea := lineas[0].(map[string]any)
-	muebleLinea := lineas[1].(map[string]any)
+	segundaLinea := lineas[1].(map[string]any)
 	item := func(l map[string]any, cant float64) map[string]any {
 		return map[string]any{"linea_id": l["id"], "tipo": l["tipo"], "cantidad": cant}
 	}
@@ -175,13 +184,10 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 	if st, _ := retirar(item(placaLinea, 2)); st != http.StatusUnprocessableEntity {
 		t.Fatalf("retirar más de lo que queda: %d", st)
 	}
-	if st, _ := retirar(item(muebleLinea, 1)); st != http.StatusUnprocessableEntity {
-		t.Fatalf("mueble sin terminar: %d", st)
-	}
 	if st, _ := c.pedir("POST", ruta+"/estado", map[string]any{"estado": "listo"}); st != http.StatusOK {
 		t.Fatalf("estado listo: %d", st)
 	}
-	st, v = retirar(item(placaLinea, 1), item(muebleLinea, 1))
+	st, v = retirar(item(placaLinea, 1), item(segundaLinea, 1))
 	if st != http.StatusOK || v["estado"] != "entregado" || v["todo_retirado"] != true {
 		t.Fatalf("segundo retiro: %d %v", st, v)
 	}
@@ -189,7 +195,7 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 		t.Fatalf("una boleta entregada no sirve de nuevo: %d", st)
 	}
 	// El retiro no vuelve a tocar el stock: ya se descontó al confirmar.
-	if got := stockEn(t, c, placaID, laPlata); got != 2 {
+	if got := stockEn(t, c, placaID, laPlata); got != 1 {
 		t.Fatalf("stock en La Plata = %v", got)
 	}
 
@@ -204,6 +210,20 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 	}
 	if _, lista := c.pedirLista("GET", "/api/v1/ventas?estado=a_retirar"); len(lista) != 0 {
 		t.Fatalf("no queda nada para retirar: %v", lista)
+	}
+	if _, lista := c.pedirLista("GET", "/api/v1/ventas?tipo=muebles"); len(lista) != 0 {
+		t.Fatalf("no hay presupuestos de muebles: %v", lista)
+	}
+
+	// Productos vendidos: los dos renglones de la misma placa se suman.
+	hoy := time.Now().In(zonaHoraria).Format("2006-01-02")
+	st, vendidos := c.pedirLista("GET", "/api/v1/ventas/productos-vendidos?desde="+hoy+"&hasta="+hoy)
+	if st != http.StatusOK || len(vendidos) != 1 || vendidos[0]["cantidad"].(float64) != 4 ||
+		vendidos[0]["importe"].(float64) != total || vendidos[0]["ventas"].(float64) != 1 {
+		t.Fatalf("productos vendidos: %d %v", st, vendidos)
+	}
+	if _, vendidos := c.pedirLista("GET", "/api/v1/ventas/productos-vendidos?desde=2020-01-01&hasta=2020-01-31"); len(vendidos) != 0 {
+		t.Fatalf("otro período: %v", vendidos)
 	}
 }
 
@@ -311,7 +331,7 @@ func TestVentasAisladasYNumeracion(t *testing.T) {
 	}
 	if st, _ := o.pedir("POST", "/api/v1/ventas", map[string]any{
 		"cliente_id": idDeJSON(cli),
-		"lineas":     []any{map[string]any{"tipo": "mueble", "descripcion": "x", "cantidad": 1, "precio_unitario": 1}},
+		"lineas":     []any{},
 	}); st != http.StatusUnprocessableEntity {
 		t.Errorf("usa un cliente ajeno: %d", st)
 	}

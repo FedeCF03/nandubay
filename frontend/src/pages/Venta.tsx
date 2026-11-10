@@ -19,6 +19,7 @@ import {
   type Estado, type Venta as TVenta,
 } from '@/ventas/api'
 import { DialogoCancelar, DialogoConfirmar, DialogoPago, DialogoRetiro } from '@/ventas/Dialogos'
+import { DespieceVenta } from '@/presupuestos/Despiece'
 import { EstadoBadge } from './Ventas'
 
 type Dialogo = 'confirmar' | 'pago' | 'retiro' | 'cancelar' | null
@@ -73,12 +74,14 @@ export default function Venta() {
   const activa = v.estado !== 'cancelado'
   const cancela = confirma && activa && v.estado !== 'entregado'
   const devuelve = cobra && activa && v.pagado > 0
+  const muebles = v.tipo === 'muebles'
+  const base = muebles ? '/presupuestos' : '/ventas'
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" asChild aria-label="Volver"><Link href="/ventas"><ArrowLeft /></Link></Button>
+          <Button variant="ghost" size="icon" asChild aria-label="Volver"><Link href={base}><ArrowLeft /></Link></Button>
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-2xl font-semibold tracking-tight">{esPresupuesto ? 'Presupuesto' : 'Venta'} N° {numeroVenta(v.numero)}</h2>
@@ -94,7 +97,7 @@ export default function Venta() {
             <Link href={`/ventas/${v.id}/boleta`}><Printer /> {esPresupuesto ? 'Imprimir presupuesto' : 'Imprimir boleta'}</Link>
           </Button>
           {esPresupuesto && edita && (
-            <Button variant="outline" asChild><Link href={`/ventas/${v.id}/editar`}><Pencil /> Editar</Link></Button>
+            <Button variant="outline" asChild><Link href={`${base}/${v.id}/editar`}><Pencil /> Editar</Link></Button>
           )}
           {esPresupuesto && confirma && <Button onClick={() => setDialogo('confirmar')}><CheckCircle2 /> Confirmar venta</Button>}
           {activa && cobra && v.saldo > 0 && (
@@ -239,6 +242,8 @@ export default function Venta() {
           </CardContent>
         </Card>
       </div>
+
+      {muebles && <DespieceVenta id={v.id} />}
 
       {dialogo === 'confirmar' && <DialogoConfirmar venta={v} onClose={() => setDialogo(null)} />}
       {dialogo === 'pago' && <DialogoPago venta={v} onClose={() => setDialogo(null)} />}

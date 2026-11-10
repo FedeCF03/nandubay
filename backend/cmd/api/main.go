@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // zona horaria de Argentina aunque la imagen no la traiga
 
 	"github.com/FedeCF03/nandubay/backend/internal/adaptadores/api"
 	"github.com/FedeCF03/nandubay/backend/internal/adaptadores/postgres"

@@ -257,3 +257,26 @@ func TestCliente(t *testing.T) {
 		t.Error("email inválido")
 	}
 }
+
+func TestMostradorSoloProductos(t *testing.T) {
+	ls, _ := ArmarLineas([]LineaNueva{
+		{Tipo: LineaProducto, ProductoID: 1, Cantidad: 1},
+		{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 1, PrecioUnitario: f(10)},
+	}, productos)
+	if err := ControlarLineas(Mostrador, ls[:1]); err != nil {
+		t.Error(err)
+	}
+	if err := ControlarLineas(Mostrador, ls); err == nil {
+		t.Error("un mueble no se vende en el mostrador")
+	}
+	if err := ControlarLineas(Muebles, ls[1:]); err != nil {
+		t.Error(err)
+	}
+	if err := ControlarLineas(Muebles, ls); err == nil {
+		t.Error("un producto suelto no va en un presupuesto de muebles")
+	}
+	p := Pedido{Tipo: Mostrador, Estado: Presupuesto}
+	if _, err := p.Editar(DatosVenta{}, ls); err == nil {
+		t.Error("editar un presupuesto de mostrador con un mueble")
+	}
+}

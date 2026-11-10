@@ -2,6 +2,7 @@ package aplicacion
 
 import (
 	"context"
+	"time"
 
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/ventas"
@@ -96,13 +97,16 @@ func (s *ServicioVentas) armarLineas(ctx context.Context, u *acceso.Usuario, nue
 }
 
 // CrearPresupuesto guarda una venta nueva en la sucursal en la que está el usuario.
-func (s *ServicioVentas) CrearPresupuesto(ctx context.Context, u *acceso.Usuario, d ventas.DatosVenta, nuevas []ventas.LineaNueva) (VentaVista, error) {
+func (s *ServicioVentas) CrearPresupuesto(ctx context.Context, u *acceso.Usuario, tipo ventas.TipoVenta, d ventas.DatosVenta, nuevas []ventas.LineaNueva) (VentaVista, error) {
 	lineas, err := s.armarLineas(ctx, u, nuevas)
 	if err != nil {
 		return VentaVista{}, err
 	}
+	if err := ventas.ControlarLineas(tipo, lineas); err != nil {
+		return VentaVista{}, err
+	}
 	id, err := s.Repo.CrearVenta(ctx, u.CarpinteriaID, VentaNueva{
-		SucursalID: u.SucursalID, VendedorID: u.ID, Datos: limpiarDatos(d), Lineas: lineas,
+		Tipo: tipo, SucursalID: u.SucursalID, VendedorID: u.ID, Datos: limpiarDatos(d), Lineas: lineas,
 	})
 	if err != nil {
 		return VentaVista{}, err
@@ -131,7 +135,12 @@ func (s *ServicioVentas) EditarPresupuesto(ctx context.Context, u *acceso.Usuari
 		return VentaVista{}, err
 	}
 	d = limpiarDatos(d)
-	return s.modificar(ctx, u, id, func(p ventas.Pedido) (ventas.Cambio, error) { return p.Editar(d, lineas) })
+	return s.modificar(ctx, u, id, func(p ventas.Pedido) (ventas.Cambio, error) {
+		if p.Tipo == ventas.Muebles {
+			return ventas.Cambio{}, ventas.ErrValidacion{Campo: "lineas", Mensaje: "un presupuesto de muebles se edita desde presupuestos de muebles"}
+		}
+		return p.Editar(d, lineas)
+	})
 }
 
 func (s *ServicioVentas) Confirmar(ctx context.Context, u *acceso.Usuario, id, depositoID int64) (VentaVista, error) {
@@ -153,4 +162,20 @@ func (s *ServicioVentas) Retirar(ctx context.Context, u *acceso.Usuario, id int6
 
 func (s *ServicioVentas) Cancelar(ctx context.Context, u *acceso.Usuario, id int64) (VentaVista, error) {
 	return s.modificar(ctx, u, id, func(p ventas.Pedido) (ventas.Cambio, error) { return p.Cancelar() })
+}
+
+// ProductosVendidos resume qué productos del stock se vendieron en el período.
+// Si no se dice, toma el mes en curso.
+func (s *ServicioVentas) ProductosVendidos(ctx context.Context, u *acceso.Usuario, f FiltroVendidos) ([]ProductoVendido, error) {
+	if f.Desde.IsZero() {
+		hoy := time.Now()
+		f.Desde = time.Date(hoy.Year(), hoy.Month(), 1, 0, 0, 0, 0, hoy.Location())
+	}
+	if f.Hasta.IsZero() || !f.Hasta.After(f.Desde) {
+		f.Hasta = f.Desde.AddDate(0, 1, 0)
+	}
+	if f.Hasta.Sub(f.Desde) > 400*24*time.Hour {
+		return nil, ventas.ErrValidacion{Campo: "hasta", Mensaje: "el período no puede ser de más de un año"}
+	}
+	return s.Repo.ProductosVendidos(ctx, u.CarpinteriaID, f)
 }

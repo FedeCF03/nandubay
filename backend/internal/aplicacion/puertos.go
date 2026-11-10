@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/ventas"
 )
@@ -126,8 +127,9 @@ type RepositorioStock interface {
 
 // FiltroVentas para listar ventas.
 type FiltroVentas struct {
-	Estado string // vacío = todas; "a_retirar" = confirmadas con algo pendiente
-	Buscar string // número de venta o nombre del cliente
+	Tipo   ventas.TipoVenta // vacío = todas
+	Estado string           // vacío = todas; "a_retirar" = confirmadas con algo pendiente
+	Buscar string           // número de venta o nombre del cliente
 	Limite int
 }
 
@@ -146,10 +148,12 @@ type ResumenVenta struct {
 
 // VentaNueva es un presupuesto a guardar.
 type VentaNueva struct {
+	Tipo       ventas.TipoVenta
 	SucursalID int64
 	VendedorID int64
 	Datos      ventas.DatosVenta
 	Lineas     []ventas.Linea
+	Despiece   []muebles.Mueble // en un presupuesto de muebles, uno por línea
 }
 
 // RepositorioVentas persiste clientes y ventas. Devuelve ventas.ErrNoEncontrado
@@ -167,4 +171,48 @@ type RepositorioVentas interface {
 	// la misma transacción, junto con los movimientos de stock. Si algo
 	// falla no se guarda nada.
 	Modificar(ctx context.Context, carpinteriaID, usuarioID, id int64, fn func(ventas.Pedido) (ventas.Cambio, error)) error
+	ProductosVendidos(ctx context.Context, carpinteriaID int64, f FiltroVendidos) ([]ProductoVendido, error)
+	// BuscarDespiece trae los muebles de un presupuesto con sus piezas e insumos.
+	BuscarDespiece(ctx context.Context, carpinteriaID, pedidoID int64) ([]muebles.Mueble, error)
+
+	// Fotos de los muebles de un presupuesto.
+	ListarFotos(ctx context.Context, carpinteriaID, pedidoID int64) ([]FotoMueble, error)
+	// AgregarFoto devuelve ventas.ErrNoEncontrado si el mueble no es de ese
+	// presupuesto y ErrDemasiadasFotos si ya tiene el máximo.
+	AgregarFoto(ctx context.Context, carpinteriaID, usuarioID, pedidoID int64, f FotoNueva) (FotoMueble, error)
+	BuscarFoto(ctx context.Context, carpinteriaID, pedidoID, fotoID int64) (tipo string, datos []byte, err error)
+	BorrarFoto(ctx context.Context, carpinteriaID, pedidoID, fotoID int64) error
+}
+
+// FotoMueble es una foto de un mueble del presupuesto (sin la imagen).
+type FotoMueble struct {
+	ID          int64     `json:"id"`
+	MuebleClave string    `json:"mueble_clave"`
+	CreadoEn    time.Time `json:"creado_en"`
+}
+
+// FotoNueva es una foto a guardar, ya controlada.
+type FotoNueva struct {
+	MuebleClave string
+	Tipo        string
+	Datos       []byte
+}
+
+// FiltroVendidos limita el resumen de productos vendidos. Cuenta las ventas
+// confirmadas entre Desde (incluido) y Hasta (excluido), por fecha de confirmación.
+type FiltroVendidos struct {
+	Desde, Hasta time.Time
+	SucursalID   int64 // 0 = todas
+}
+
+// ProductoVendido es cuánto se vendió de un producto en el período.
+type ProductoVendido struct {
+	ProductoID int64   `json:"producto_id"`
+	Nombre     string  `json:"nombre"`
+	Tipo       string  `json:"tipo"`
+	Unidad     string  `json:"unidad"`
+	Cantidad   float64 `json:"cantidad"`
+	Importe    float64 `json:"importe"`
+	Costo      float64 `json:"costo"`
+	Ventas     int     `json:"ventas"`
 }
