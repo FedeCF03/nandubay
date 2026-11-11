@@ -53,12 +53,13 @@ export function DialogoConfirmar({ venta, onClose }: { venta: Venta; onClose: ()
   const mat = presupuesto.data?.materiales
 
   // Cuánto hace falta de cada producto: los renglones sueltos y, en un
-  // presupuesto de muebles, las placas, el canto y los herrajes calculados.
+  // presupuesto de muebles, el canto y los herrajes calculados. Las placas se
+  // descuentan después, al confirmar el corte.
   const necesita = useMemo(() => {
     const m = new Map<number, number>()
     const sumar = (id: number, c: number) => m.set(id, (m.get(id) ?? 0) + c)
     for (const l of venta.lineas) if (l.tipo === 'producto' && l.producto_id) sumar(l.producto_id, l.cantidad)
-    if (mat) for (const x of [...mat.placas, ...mat.cantos, ...mat.insumos]) sumar(x.producto_id, x.cantidad)
+    if (mat) for (const x of [...mat.cantos, ...mat.insumos]) sumar(x.producto_id, x.cantidad)
     return m
   }, [venta.lineas, mat])
 
@@ -80,7 +81,7 @@ export function DialogoConfirmar({ venta, onClose }: { venta: Venta; onClose: ()
   return (
     <Marco titulo={`Confirmar venta N° ${venta.numero}`} onClose={onClose} pendiente={accion.isPending} error={accion.error}
       desc={muebles
-        ? 'Se descuentan las placas, el canto y los herrajes calculados del depósito que elijas. El cliente retira los muebles en la sucursal de ese depósito.'
+        ? 'Se descuentan el canto y los herrajes del depósito que elijas y quedan los cortes pendientes en Cortes optimizados: las placas se descuentan cuando confirmes que se cortaron. El cliente retira los muebles en la sucursal de ese depósito.'
         : 'Se descuenta el stock del depósito que elijas. El cliente retira en la sucursal de ese depósito.'}
       boton="Confirmar y descontar stock" deshabilitado={!actual || actual.faltan.length > 0 || (muebles && presupuesto.isPending)}
       onSubmit={() => actual && accion.mutate({ accion: 'confirmar', deposito_id: actual.id }, { onSuccess: onClose })}>

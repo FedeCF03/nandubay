@@ -159,6 +159,7 @@ const (
 	MovTraspasoEntrada TipoMovimiento = "traspaso_entrada"
 	MovTraspasoSalida  TipoMovimiento = "traspaso_salida"
 	MovDevolucion      TipoMovimiento = "devolucion"
+	MovCorte           TipoMovimiento = "corte"
 )
 
 // Movimiento de stock. Cantidad positiva entra, negativa sale.
@@ -242,6 +243,15 @@ func Venta(productoID, depositoID int64, cantidad float64, nota string) (Operaci
 		return Operacion{}, ErrCantidad
 	}
 	m := Movimiento{productoID, depositoID, MovVenta, -cantidad, nil, strings.TrimSpace(nota)}
+	return Operacion{m, sumar(-cantidad)}, nil
+}
+
+// Corte saca las placas enteras que se cortaron en el taller.
+func Corte(productoID, depositoID int64, cantidad float64, nota string) (Operacion, error) {
+	if cantidad <= 0 {
+		return Operacion{}, ErrCantidad
+	}
+	m := Movimiento{productoID, depositoID, MovCorte, -cantidad, nil, strings.TrimSpace(nota)}
 	return Operacion{m, sumar(-cantidad)}, nil
 }
 

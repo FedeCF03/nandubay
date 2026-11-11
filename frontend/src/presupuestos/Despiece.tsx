@@ -7,6 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { fmtNumero, unidadCorta, useProductos } from '@/stock/api'
 import { medidas } from '@/ventas/api'
 import { usePermiso } from '@/auth/sesion'
+import { IconoVeta } from '@/cortes/SelectorVeta'
+import { nombreVeta, vetaDe } from '@/cortes/veta'
 import { FotosMueble } from './Fotos'
 import { tieneCanto, usePresupuesto } from './api'
 import { PlanesDeCorte, ResumenMateriales } from './Materiales'
@@ -66,6 +68,7 @@ export function DespieceVenta({ id }: { id: number }) {
                           <TableHead>Placa</TableHead>
                           <TableHead className="text-right">Medida</TableHead>
                           <TableHead className="text-right">Cant.</TableHead>
+                          <TableHead>Veta</TableHead>
                           <TableHead className="pr-6">Canto</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -76,6 +79,11 @@ export function DespieceVenta({ id }: { id: number }) {
                             <TableCell className="max-w-40 truncate">{nombre.get(pz.placa_id)?.nombre ?? '—'}</TableCell>
                             <TableCell className="text-right whitespace-nowrap tabular-nums">{pz.largo} × {pz.ancho}</TableCell>
                             <TableCell className="text-right tabular-nums">{pz.cantidad}</TableCell>
+                            <TableCell className="text-sm whitespace-nowrap">
+                              {nombre.get(pz.placa_id)?.tiene_veta && vetaDe(pz) !== 'no'
+                                ? <span className="inline-flex items-center gap-1"><IconoVeta veta={vetaDe(pz)} /> {nombreVeta[vetaDe(pz)]}</span>
+                                : <span className="text-muted-foreground">—</span>}
+                            </TableCell>
                             <TableCell className="pr-6 text-sm">
                               {tieneCanto(pz.cantos)
                                 ? <><span className="font-mono">{lados(pz.cantos)}</span> <span className="text-muted-foreground">{nombre.get(pz.canto_id ?? 0)?.nombre}</span></>

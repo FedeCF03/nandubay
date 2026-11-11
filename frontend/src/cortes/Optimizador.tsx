@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { AlertTriangle, Layers, Loader2, Plus, Printer, Recycle, Ruler, Scissors, Trash2 } from 'lucide-react'
+import { useLocation } from 'wouter'
+import { AlertTriangle, Layers, Loader2, Plus, Printer, Recycle, Ruler, Save, Scissors, Trash2 } from 'lucide-react'
 import { postJSON } from '@/api/cliente'
 import { usePermiso } from '@/auth/sesion'
 import { useGuardado } from '@/hooks/use-guardado'
@@ -8,13 +9,16 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PlacaSVG } from './PlacaSVG'
 import { SelectorCantos } from './SelectorCantos'
+import { SelectorVeta } from './SelectorVeta'
+import { conVeta, vetaDe } from './veta'
+import { useCrearCorte } from './api'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { getJSON } from '@/api/cliente'
-import { useProductos, type Retazo } from '@/stock/api'
+import { useDepositos, useProductos, useRetazos } from '@/stock/api'
 import type { Parametros, Pieza, Resultado, RetazoCorte } from './tipos'
 
 let siguienteId = 4
@@ -34,14 +38,14 @@ const ejemplo: Pieza[] = [
 
 const num = (v: string) => Math.max(0, Number(v) || 0)
 
-function Campo({ id, label, valor, onChange, sufijo }: {
-  id: string; label: string; valor: number; onChange: (n: number) => void; sufijo?: string
+function Campo({ id, label, valor, onChange, sufijo, disabled }: {
+  id: string; label: string; valor: number; onChange: (n: number) => void; sufijo?: string; disabled?: boolean
 }) {
   return (
     <div className="grid gap-1.5">
       <Label htmlFor={id} className="text-xs text-muted-foreground">{label}</Label>
       <div className="relative">
-        <Input id={id} type="number" inputMode="numeric" value={valor}
+        <Input id={id} type="number" inputMode="numeric" value={valor} disabled={disabled}
           onChange={(e) => onChange(num(e.target.value))} className={sufijo ? 'pr-9' : ''} />
         {sufijo && <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">{sufijo}</span>}
       </div>
@@ -71,27 +75,30 @@ export function Optimizador() {
     sobrante_min_largo: 300, sobrante_min_ancho: 150,
   })
   const [piezas, setPiezas] = useGuardado<Pieza[]>('nandubay.cortes.piezas', ejemplo)
-  const [retazos, setRetazos] = useGuardado<RetazoCorte[]>('nandubay.cortes.retazos', [])
+  const [retazosManuales, setRetazos] = useGuardado<RetazoCorte[]>('nandubay.cortes.retazos', [])
   const [placaStock, setPlacaStock] = useGuardado<string>('nandubay.cortes.placa-stock', '')
+  const [deposito, setDeposito] = useGuardado<string>('nandubay.cortes.deposito', '')
   const veStock = usePermiso('stock.ver')
   const placas = useProductos({ tipo: 'placa', buscar: '' }, veStock).data ?? []
-  const [errorRetazos, setErrorRetazos] = useState('')
+  const depositosQ = useDepositos()
+  const depositos = useMemo(() => depositosQ.data ?? [], [depositosQ.data])
+  const placa = placas.find((p) => String(p.id) === placaStock)
+  // Con una placa del stock, los retazos son los disponibles de esa placa en el
+  // depósito elegido. Sin placa del stock se cargan a mano.
+  const delStock = useRetazos(placa?.id ?? 0, Number(deposito) || 0, Boolean(placa && deposito))
+  const retazos: RetazoCorte[] = placa
+    ? (deposito ? (delStock.data ?? []).map((r) => ({ id: String(r.id), largo: r.largo, ancho: r.ancho })) : [])
+    : retazosManuales
 
-  // Elegir una placa del stock trae sus medidas y sus retazos disponibles.
-  const elegirPlaca = async (id: string) => {
-    setPlacaStock(id)
-    setErrorRetazos('')
-    const pl = placas.find((p) => String(p.id) === id)
-    if (!pl) return
-    setParams((x) => ({ ...x, placa_largo: pl.largo_mm ?? x.placa_largo, placa_ancho: pl.ancho_mm ?? x.placa_ancho,
-      tiene_veta: pl.tiene_veta, refilado: pl.refilado_mm }))
-    try {
-      const rs = await getJSON<Retazo[]>(`/api/v1/retazos?placa_id=${id}`)
-      setRetazos(rs.map((r) => ({ id: String(r.id), largo: r.largo, ancho: r.ancho })))
-    } catch (e) {
-      setErrorRetazos(e instanceof Error ? e.message : 'No se pudieron traer los retazos')
-    }
-  }
+  // Elegir una placa del stock trae sus medidas y su veta.
+  useEffect(() => {
+    if (!placa) return
+    setParams((x) => ({ ...x, placa_largo: placa.largo_mm ?? x.placa_largo, placa_ancho: placa.ancho_mm ?? x.placa_ancho,
+      tiene_veta: placa.tiene_veta, refilado: placa.refilado_mm }))
+  }, [placa, setParams])
+  useEffect(() => {
+    if (!deposito && depositos.length === 1) setDeposito(String(depositos[0].id))
+  }, [deposito, depositos, setDeposito])
   const setRetazo = (i: number, cambios: Partial<RetazoCorte>) =>
     setRetazos((rs) => rs.map((r, j) => (j === i ? { ...r, ...cambios } : r)))
   const agregarRetazo = () => setRetazos((rs) => {
@@ -103,14 +110,24 @@ export function Optimizador() {
   siguienteId = Math.max(siguienteId, ...piezas.map((p) => Number(p.id) + 1 || 0))
   const puedeGenerar = usePermiso('cortes.generar')
 
+  const [, navegar] = useLocation()
+  const crear = useCrearCorte()
+  const [guardando, setGuardando] = useState(false)
+  const [nombre, setNombre] = useState('')
+  const piezasValidas = () => piezas
+    .map((p, i) => ({ ...p, etiqueta: p.etiqueta.trim() || `Pieza ${i + 1}` }))
+    .filter((p) => p.largo > 0 && p.ancho > 0)
+  const guardarCorte = () => crear.mutate(
+    { nombre, placa_id: Number(placaStock), deposito_id: Number(deposito), kerf: params.kerf, piezas: piezasValidas() },
+    { onSuccess: (c) => navegar(`/cortes-optimizados/${c.id}`) },
+  )
+
   const optimizar = useMutation({
     mutationFn: () =>
       postJSON<Resultado>('/api/v1/cortes/optimizar', {
         parametros: { ...params, retazos: retazos.filter((r) => r.largo > 0 && r.ancho > 0) },
         // Sin nombre, la pieza se llama como su renglón (lo mismo que muestra el campo vacío).
-        piezas: piezas
-          .map((p, i) => ({ ...p, etiqueta: p.etiqueta.trim() || `Pieza ${i + 1}` }))
-          .filter((p) => p.largo > 0 && p.ancho > 0),
+        piezas: piezasValidas(),
       }),
   })
   const res = optimizar.data
@@ -131,16 +148,39 @@ export function Optimizador() {
           <CardDescription>Medidas de la placa entera. El largo va en el sentido de la veta.</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-5">
-          <Campo id="largo" label="Largo" sufijo="mm" valor={params.placa_largo}
+          {veStock && placas.length > 0 && (
+            <div className="col-span-2 grid gap-4 sm:col-span-4 sm:grid-cols-2 lg:col-span-5">
+              <div className="grid gap-1.5">
+                <Label className="text-xs text-muted-foreground">Placa del stock</Label>
+                <Select value={placaStock || 'mano'} onValueChange={(v) => setPlacaStock(v === 'mano' ? '' : v)}>
+                  <SelectTrigger className="w-full" aria-label="Placa del stock"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mano">Medidas a mano</SelectItem>
+                    {placas.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.nombre}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              {placa && (
+                <div className="grid gap-1.5">
+                  <Label className="text-xs text-muted-foreground">Depósito (de dónde salen la placa y los retazos)</Label>
+                  <Select value={deposito} onValueChange={setDeposito}>
+                    <SelectTrigger className="w-full" aria-label="Depósito"><SelectValue placeholder="Elegí el depósito" /></SelectTrigger>
+                    <SelectContent>{depositos.map((d) => <SelectItem key={d.id} value={String(d.id)}>{d.nombre}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          )}
+          <Campo id="largo" label="Largo" sufijo="mm" valor={params.placa_largo} disabled={Boolean(placa)}
             onChange={(n) => setParams({ ...params, placa_largo: n })} />
-          <Campo id="ancho" label="Ancho" sufijo="mm" valor={params.placa_ancho}
+          <Campo id="ancho" label="Ancho" sufijo="mm" valor={params.placa_ancho} disabled={Boolean(placa)}
             onChange={(n) => setParams({ ...params, placa_ancho: n })} />
           <Campo id="kerf" label="Espesor de sierra" sufijo="mm" valor={params.kerf}
             onChange={(n) => setParams({ ...params, kerf: n })} />
           <Campo id="refilado" label="Refilado por borde" sufijo="mm" valor={params.refilado}
             onChange={(n) => setParams({ ...params, refilado: n })} />
           <div className="col-span-2 flex items-center gap-2 sm:col-span-4 lg:col-span-1 lg:self-end lg:pb-2">
-            <Checkbox id="veta" checked={params.tiene_veta}
+            <Checkbox id="veta" checked={params.tiene_veta} disabled={Boolean(placa)}
               onCheckedChange={(v) => setParams({ ...params, tiene_veta: v === true })} />
             <Label htmlFor="veta">La placa tiene veta</Label>
           </div>
@@ -153,40 +193,47 @@ export function Optimizador() {
             Retazos <Badge variant="secondary">{retazos.length}</Badge>
           </CardTitle>
           <CardDescription>
-            Sobrantes que se usan antes de abrir una placa entera. Podés traerlos del stock o cargarlos a mano.
+            Sobrantes que se usan antes de abrir una placa entera. {placa ? 'Son los disponibles en el stock.' : 'Elegí una placa del stock para traerlos, o cargalos a mano.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {veStock && placas.length > 0 && (
-            <div className="grid gap-1.5 sm:max-w-sm">
-              <Label className="text-xs text-muted-foreground">Placa del stock (trae medidas y retazos)</Label>
-              <Select value={placaStock} onValueChange={elegirPlaca}>
-                <SelectTrigger className="w-full" aria-label="Placa del stock"><SelectValue placeholder="Elegí una placa" /></SelectTrigger>
-                <SelectContent>{placas.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.nombre}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-          )}
-          {errorRetazos && <p className="text-sm text-destructive">{errorRetazos}</p>}
-          {retazos.length > 0 && (
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {retazos.map((r, i) => (
-                <div key={r.id} className="flex items-center gap-2 rounded-lg border p-2">
-                  <span className="w-12 shrink-0 text-center font-mono text-sm">{/^\d+$/.test(r.id) ? `#${r.id}` : r.id}</span>
-                  <Input type="number" inputMode="numeric" value={r.largo || ''} placeholder="Largo" aria-label={`Largo del retazo ${r.id}`}
-                    onChange={(e) => setRetazo(i, { largo: num(e.target.value) })} />
-                  <span className="text-muted-foreground">×</span>
-                  <Input type="number" inputMode="numeric" value={r.ancho || ''} placeholder="Ancho" aria-label={`Ancho del retazo ${r.id}`}
-                    onChange={(e) => setRetazo(i, { ancho: num(e.target.value) })} />
-                  <Button variant="ghost" size="icon" aria-label={`Quitar retazo ${r.id}`} className="shrink-0 text-muted-foreground"
-                    onClick={() => setRetazos(retazos.filter((_, j) => j !== i))}><Trash2 /></Button>
+          {placa ? (
+            !deposito ? <p className="text-sm text-muted-foreground">Elegí el depósito para traer sus retazos.</p>
+              : delStock.isError ? <p className="text-sm text-destructive">{delStock.error.message}</p>
+                : retazos.length === 0 ? <p className="text-sm text-muted-foreground">No hay retazos de esta placa en ese depósito.</p>
+                  : (
+                    <div className="flex flex-wrap gap-2">
+                      {retazos.map((r) => (
+                        <span key={r.id} className="rounded-md border px-2 py-1 text-sm tabular-nums">
+                          <span className="font-mono text-muted-foreground">#{r.id}</span> {r.largo} × {r.ancho}
+                        </span>
+                      ))}
+                    </div>
+                  )
+          ) : (
+            <>
+              {retazos.length > 0 && (
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {retazos.map((r, i) => (
+                    <div key={r.id} className="flex items-center gap-2 rounded-lg border p-2">
+                      <span className="w-12 shrink-0 text-center font-mono text-sm">{/^\d+$/.test(r.id) ? `#${r.id}` : r.id}</span>
+                      <Input type="number" inputMode="numeric" value={r.largo || ''} placeholder="Largo" aria-label={`Largo del retazo ${r.id}`}
+                        onChange={(e) => setRetazo(i, { largo: num(e.target.value) })} />
+                      <span className="text-muted-foreground">×</span>
+                      <Input type="number" inputMode="numeric" value={r.ancho || ''} placeholder="Ancho" aria-label={`Ancho del retazo ${r.id}`}
+                        onChange={(e) => setRetazo(i, { ancho: num(e.target.value) })} />
+                      <Button variant="ghost" size="icon" aria-label={`Quitar retazo ${r.id}`} className="shrink-0 text-muted-foreground"
+                        onClick={() => setRetazos(retazos.filter((_, j) => j !== i))}><Trash2 /></Button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={agregarRetazo}><Plus /> Agregar retazo</Button>
+                {retazos.length > 0 && <Button variant="ghost" onClick={() => setRetazos([])}>Sacar todos</Button>}
+              </div>
+            </>
           )}
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={agregarRetazo}><Plus /> Agregar retazo</Button>
-            {retazos.length > 0 && <Button variant="ghost" onClick={() => setRetazos([])}>Sacar todos</Button>}
-          </div>
         </CardContent>
       </Card>
 
@@ -200,13 +247,13 @@ export function Optimizador() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="hidden grid-cols-[1fr_6rem_6rem_5rem_4rem_4rem_2.5rem] gap-3 px-1 text-xs text-muted-foreground md:grid">
+          <div className="hidden grid-cols-[1fr_6rem_6rem_5rem_8rem_4rem_2.5rem] gap-3 px-1 text-xs text-muted-foreground md:grid">
             <span>Nombre (opcional)</span><span>Largo</span><span>Ancho</span><span>Cant.</span>
             <span>Veta</span><span>Cantos</span><span />
           </div>
           {piezas.map((p, i) => (
             <div key={p.id}
-              className="grid grid-cols-3 items-end gap-3 rounded-lg border p-3 md:grid-cols-[1fr_6rem_6rem_5rem_4rem_4rem_2.5rem] md:items-center md:border-0 md:p-1">
+              className="grid grid-cols-3 items-end gap-3 rounded-lg border p-3 md:grid-cols-[1fr_6rem_6rem_5rem_8rem_4rem_2.5rem] md:items-center md:border-0 md:p-1">
               <div className="col-span-3 md:col-span-1">
                 <Label className="mb-1.5 text-xs text-muted-foreground md:hidden">Nombre (opcional)</Label>
                 <Input value={p.etiqueta} placeholder={`Pieza ${i + 1}`} aria-label="Nombre (opcional)"
@@ -220,11 +267,8 @@ export function Optimizador() {
                 </div>
               ))}
               <div className="col-span-3 flex items-center justify-between gap-4 md:contents">
-                <label className="flex items-center gap-2 text-sm md:justify-center">
-                  <Checkbox checked={p.respeta_veta} disabled={!params.tiene_veta} aria-label="Respeta veta"
-                    onCheckedChange={(v) => setPieza(i, { respeta_veta: v === true })} />
-                  <span className="md:hidden">Respeta veta</span>
-                </label>
+                <SelectorVeta valor={vetaDe(p)} disabled={!params.tiene_veta} etiqueta={`Veta de la pieza ${i + 1}`}
+                  className="w-full md:w-full" onChange={(v) => setPieza(i, conVeta(v))} />
                 <SelectorCantos valor={p.cantos} onChange={(cantos) => setPieza(i, { cantos })} />
                 <Button variant="ghost" size="icon" aria-label="Quitar pieza"
                   className="text-muted-foreground hover:text-destructive"
@@ -246,6 +290,11 @@ export function Optimizador() {
             {res && (
               <Button variant="outline" onClick={() => window.print()}>
                 <Printer /> Imprimir
+              </Button>
+            )}
+            {puedeGenerar && placa && deposito && totalPiezas > 0 && (
+              <Button variant="outline" onClick={() => { crear.reset(); setGuardando(true) }}>
+                <Save /> Guardar para cortar
               </Button>
             )}
           </div>
@@ -300,6 +349,29 @@ export function Optimizador() {
           ))}
         </section>
       )}
+
+      <Dialog open={guardando} onOpenChange={setGuardando}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Guardar para cortar</DialogTitle>
+            <DialogDescription>
+              Queda en Cortes optimizados como pendiente. Cuando confirmes que se cortó se descuentan las placas de {placa?.nombre}
+              y se guardan los sobrantes como retazos.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-1.5">
+            <Label htmlFor="nombre-corte">Nombre (opcional)</Label>
+            <Input id="nombre-corte" value={nombre} placeholder="Ej: Placard de Gómez" onChange={(e) => setNombre(e.target.value)} />
+          </div>
+          {crear.isError && <p className="text-sm text-destructive">{crear.error.message}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGuardando(false)}>Cancelar</Button>
+            <Button onClick={guardarCorte} disabled={crear.isPending}>
+              {crear.isPending ? <Loader2 className="animate-spin" /> : <Save />} Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

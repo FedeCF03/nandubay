@@ -188,11 +188,11 @@ func (s *ServicioVentas) verPresupuesto(ctx context.Context, u *acceso.Usuario, 
 	return v, err
 }
 
-// materialesAConsumir calcula, para un presupuesto de muebles, las placas, el
-// canto y los insumos que salen del stock al confirmarlo. En una venta de
-// mostrador no hay nada extra: alcanza con los renglones.
-//
-// Devuelve también el plan, que se guarda con la venta.
+// materialesAConsumir calcula, para un presupuesto de muebles, el canto y los
+// insumos que salen del stock al confirmarlo, y los cortes que quedan
+// pendientes (optimizados con los retazos del depósito de salida). Las placas
+// no se descuentan acá: se descuentan al confirmar que se cortaron. En una
+// venta de mostrador no hay nada extra: alcanza con los renglones.
 func (s *ServicioVentas) materialesAConsumir(ctx context.Context, u *acceso.Usuario, id, depositoID int64) ([]ventas.Consumo, *muebles.Materiales, error) {
 	v, err := s.VerVenta(ctx, u, id)
 	if err != nil || v.Tipo != ventas.Muebles {
@@ -215,10 +215,14 @@ func (s *ServicioVentas) materialesAConsumir(ctx context.Context, u *acceso.Usua
 	if err != nil {
 		return nil, nil, err
 	}
-	var out []ventas.Consumo
-	for _, p := range mat.Placas {
-		out = append(out, ventas.Consumo{ProductoID: p.ProductoID, Cantidad: float64(p.Cantidad)})
+	retazos, err := s.Repo.RetazosDisponibles(ctx, u.CarpinteriaID, muebles.ProductosUsados(ms), depositoID)
+	if err != nil {
+		return nil, nil, err
 	}
+	if mat.Cortes, err = muebles.PlanesDeCorte(mat, retazos); err != nil {
+		return nil, nil, err
+	}
+	var out []ventas.Consumo
 	for _, c := range append(mat.Cantos, mat.Insumos...) {
 		out = append(out, ventas.Consumo{ProductoID: c.ProductoID, Cantidad: c.Cantidad})
 	}

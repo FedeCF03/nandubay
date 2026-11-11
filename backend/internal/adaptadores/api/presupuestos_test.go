@@ -165,9 +165,14 @@ func TestConfirmarPresupuestoDescuentaMateriales(t *testing.T) {
 	if st, r := c.pedir("POST", confirmar, map[string]any{"deposito_id": laPlata}); st != http.StatusOK {
 		t.Fatalf("confirmar: %d %v", st, r)
 	}
-	// 4 piezas de 700×300 entran en 1 placa; canto: 4 × (700+30) mm; 4 bisagras.
-	if got := stockEn(t, c, blanca, laPlata); got != 4 {
-		t.Errorf("placas = %v, esperaba 4", got)
+	// Canto: 4 × (700+30) mm; 4 bisagras. Las placas no se tocan: quedan en un
+	// corte pendiente y se descuentan al confirmar que se cortó.
+	if got := stockEn(t, c, blanca, laPlata); got != 5 {
+		t.Errorf("placas = %v, esperaba 5", got)
+	}
+	_, pendientes := c.pedirLista("GET", "/api/v1/cortes?estado=pendiente")
+	if len(pendientes) != 1 || pendientes[0]["pedido_id"] != float64(id) {
+		t.Fatalf("cortes pendientes: %v", pendientes)
 	}
 	if got := stockEn(t, c, idDeJSON(canto), laPlata); got != 100-2.92 {
 		t.Errorf("canto = %v, esperaba 97.08", got)
@@ -181,6 +186,9 @@ func TestConfirmarPresupuestoDescuentaMateriales(t *testing.T) {
 	}
 	if stockEn(t, c, blanca, laPlata) != 5 || stockEn(t, c, idDeJSON(canto), laPlata) != 100 || stockEn(t, c, idDeJSON(bisagra), laPlata) != 10 {
 		t.Error("cancelar no devolvió los materiales")
+	}
+	if _, x := c.pedir("GET", "/api/v1/cortes/"+itoa(idDeJSON(pendientes[0])), nil); x["estado"] != "anulado" {
+		t.Errorf("el corte de la venta cancelada tenía que quedar anulado: %v", x["estado"])
 	}
 }
 
@@ -222,46 +230,104 @@ func TestRetazos(t *testing.T) {
 	if st, r := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/confirmar", map[string]any{"deposito_id": laPlata}); st != http.StatusOK {
 		t.Fatalf("confirmar: %d %v", st, r)
 	}
+	// Al confirmar queda un corte pendiente que sí aprovecha el retazo del depósito.
+	_, l := c.pedirLista("GET", "/api/v1/cortes?estado=pendiente")
+	if len(l) != 1 {
+		t.Fatalf("cortes pendientes: %v", l)
+	}
+	urlCorte := "/api/v1/cortes/" + itoa(idDeJSON(l[0]))
+	_, corte := c.pedir("GET", urlCorte, nil)
+	res := corte["resultado"].(map[string]any)
+	if res["placas_enteras"] != 0.0 || res["placas"].([]any)[0].(map[string]any)["retazo_id"] != itoa(idDeJSON(rz)) {
+		t.Fatalf("el corte tenía que usar el retazo: %v", res)
+	}
+	if got := stockEn(t, c, blanca, laPlata); got != 5 {
+		t.Errorf("placas = %v antes de cortar, quería 5", got)
+	}
+	// Confirmar el corte: el retazo se usa y su sobrante queda como retazo nuevo.
+	if st, r := c.pedir("POST", urlCorte+"/confirmar", nil); st != http.StatusOK || r["estado"] != "cortado" {
+		t.Fatalf("confirmar corte: %d %v", st, r)
+	}
+	if st, _ := c.pedir("POST", urlCorte+"/confirmar", nil); st != http.StatusConflict {
+		t.Errorf("confirmar dos veces: %d", st)
+	}
+	disp := disponibles()
+	for _, x := range disp {
+		if idDeJSON(x) == idDeJSON(rz) {
+			t.Errorf("el retazo sigue disponible")
+		}
+	}
+	if len(disp) != 1 || disp[0]["origen"] == "" {
+		t.Errorf("tenía que quedar el sobrante como retazo nuevo: %v", disp)
+	}
+	if got := stockEn(t, c, blanca, laPlata); got != 5 {
+		t.Errorf("placas = %v, no se usó ninguna entera", got)
+	}
+	// Cancelar la venta no devuelve lo que ya se cortó.
+	if st, _ := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/cancelar", nil); st != http.StatusOK {
+		t.Fatal("cancelar")
+	}
+	if _, x := c.pedir("GET", urlCorte, nil); x["estado"] != "cortado" {
+		t.Errorf("el corte hecho tiene que quedar cortado: %v", x["estado"])
+	}
+	for _, x := range disponibles() {
+		if st, _ := c.pedir("POST", "/api/v1/retazos/"+itoa(idDeJSON(x))+"/descartar", nil); st != http.StatusNoContent {
+			t.Errorf("descartar: %d", st)
+		}
+	}
+
+	// Cortes desde el optimizador: dos cortes quieren el mismo retazo.
+	_, grande := c.pedir("POST", "/api/v1/retazos", map[string]any{"placa_id": blanca, "deposito_id": laPlata, "largo": 1600, "ancho": 1100})
+	nuevo := func() map[string]any {
+		st, x := c.pedir("POST", "/api/v1/cortes", map[string]any{"nombre": "Mesa", "placa_id": blanca, "deposito_id": laPlata, "kerf": 3,
+			"piezas": []map[string]any{{"etiqueta": "Tapa", "largo": 1500, "ancho": 1000, "cantidad": 1, "respeta_veta": true}}})
+		if st != http.StatusCreated {
+			t.Fatalf("crear corte: %d %v", st, x)
+		}
+		return x
+	}
+	a, b := nuevo(), nuevo()
+	usa := func(x map[string]any) any {
+		return x["resultado"].(map[string]any)["placas"].([]any)[0].(map[string]any)["retazo_id"]
+	}
+	if usa(a) != itoa(idDeJSON(grande)) || usa(b) != itoa(idDeJSON(grande)) {
+		t.Fatalf("los dos cortes tenían que usar el retazo: %v %v", usa(a), usa(b))
+	}
+	if st, r := c.pedir("POST", "/api/v1/cortes/"+itoa(idDeJSON(a))+"/confirmar", nil); st != http.StatusOK {
+		t.Fatalf("confirmar a: %d %v", st, r)
+	}
+	if st, r := c.pedir("POST", "/api/v1/cortes/"+itoa(idDeJSON(b))+"/confirmar", nil); st != http.StatusConflict {
+		t.Fatalf("b usa un retazo que ya no está: %d %v", st, r)
+	}
+	_, b = c.pedir("POST", "/api/v1/cortes/"+itoa(idDeJSON(b))+"/recalcular", nil)
+	if usa(b) != nil || b["resultado"].(map[string]any)["placas_enteras"] != 1.0 {
+		t.Fatalf("recalculado: %v", b["resultado"])
+	}
+	if st, r := c.pedir("POST", "/api/v1/cortes/"+itoa(idDeJSON(b))+"/confirmar", nil); st != http.StatusOK {
+		t.Fatalf("confirmar b: %d %v", st, r)
+	}
 	if got := stockEn(t, c, blanca, laPlata); got != 4 {
 		t.Errorf("placas = %v, quería 4", got)
 	}
-	usado := true
-	for _, x := range disponibles() {
-		if idDeJSON(x) == idDeJSON(rz) {
-			usado = false
-		}
-	}
-	if usado {
-		t.Errorf("el presupuesto no tenía que tocar el retazo")
-	}
-	if st, _ := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/cancelar", nil); st != http.StatusOK {
-		t.Fatal("cancelar")
-	}
-	if l := disponibles(); len(l) != 1 {
-		t.Fatalf("al cancelar se descartan los sobrantes: %v", l)
-	}
-
-	// Una pieza grande usa una placa entera y el sobrante queda como retazo.
-	id = presupuesto(1500, 1000, 1)
-	if st, r := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/confirmar", map[string]any{"deposito_id": laPlata}); st != http.StatusOK {
-		t.Fatalf("confirmar: %d %v", st, r)
-	}
 	nuevos := 0
 	for _, x := range disponibles() {
-		if x["origen"] != "" {
+		if x["origen"] == "Corte #"+itoa(idDeJSON(b)) {
 			nuevos++
 		}
 	}
-	if nuevos == 0 || stockEn(t, c, blanca, laPlata) != 4 {
-		t.Errorf("sobrantes: %d retazos nuevos, %v placas", nuevos, stockEn(t, c, blanca, laPlata))
+	if nuevos == 0 {
+		t.Errorf("el sobrante de la placa tenía que quedar como retazo: %v", disponibles())
 	}
-	if st, _ := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/cancelar", nil); st != http.StatusOK {
-		t.Fatal("cancelar")
+	// Anular un corte pendiente.
+	x := nuevo()
+	if st, r := c.pedir("POST", "/api/v1/cortes/"+itoa(idDeJSON(x))+"/anular", nil); st != http.StatusOK || r["estado"] != "anulado" {
+		t.Errorf("anular: %d %v", st, r)
 	}
-	if l := disponibles(); len(l) != 1 {
-		t.Errorf("al cancelar se descartan los sobrantes: %v", l)
+	if st, _ := c.pedir("POST", "/api/v1/cortes/"+itoa(idDeJSON(x))+"/confirmar", nil); st != http.StatusConflict {
+		t.Errorf("confirmar uno anulado: %d", st)
 	}
-	if st, _ := c.pedir("POST", "/api/v1/retazos/"+itoa(idDeJSON(rz))+"/descartar", nil); st != http.StatusNoContent || len(disponibles()) != 0 {
-		t.Errorf("descartar: %d", st)
+	if st, _ := c.pedir("POST", "/api/v1/cortes", map[string]any{"placa_id": blanca, "deposito_id": laPlata,
+		"piezas": []map[string]any{{"largo": 3000, "ancho": 2000, "cantidad": 1}}}); st != http.StatusUnprocessableEntity {
+		t.Errorf("pieza que no entra: %d", st)
 	}
 }

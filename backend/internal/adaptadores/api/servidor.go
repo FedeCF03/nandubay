@@ -27,6 +27,12 @@ type CasosAcceso interface {
 // CasosCortes son los casos de uso del optimizador.
 type CasosCortes interface {
 	Optimizar(p cortes.Parametros, piezas []cortes.Pieza, mermaCantoMM int) (aplicacion.PlanCortes, error)
+	ListarCortes(ctx context.Context, u *acceso.Usuario, estado string) ([]aplicacion.CorteOptimizado, error)
+	VerCorte(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.CorteOptimizado, error)
+	CrearCorte(ctx context.Context, u *acceso.Usuario, n aplicacion.CorteNuevo) (aplicacion.CorteOptimizado, error)
+	Recalcular(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.CorteOptimizado, error)
+	ConfirmarCorte(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.CorteOptimizado, error)
+	AnularCorte(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.CorteOptimizado, error)
 }
 
 type Servidor struct {
@@ -56,7 +62,7 @@ func (s *Servidor) Router() http.Handler {
 			r.Use(s.requiereSesion)
 			r.Get("/auth/yo", s.yo)
 			r.Post("/auth/sucursal", s.elegirSucursal)
-			r.With(requierePermiso("cortes.generar")).Post("/cortes/optimizar", s.optimizarCortes)
+			s.rutasCortes(r)
 			s.rutasStock(r)
 			s.rutasVentas(r)
 		})

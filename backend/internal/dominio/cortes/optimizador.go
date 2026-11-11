@@ -23,16 +23,27 @@ type Cantos struct {
 	A2 bool `json:"a2"`
 }
 
-// Pieza es una pieza a cortar. Largo va en el sentido de la veta. La
-// etiqueta (nombre) es opcional.
+// Pieza es una pieza a cortar. La etiqueta (nombre) es opcional.
+//
+// Veta: si RespetaVeta es true, la veta de la pieza va horizontal (a lo
+// largo de la pieza), salvo que VetaVertical diga que va a lo ancho. Si es
+// false, la pieza se puede girar como convenga.
 type Pieza struct {
-	ID          string `json:"id"`
-	Etiqueta    string `json:"etiqueta"`
-	Largo       int    `json:"largo"`
-	Ancho       int    `json:"ancho"`
-	Cantidad    int    `json:"cantidad"`
-	RespetaVeta bool   `json:"respeta_veta"`
-	Cantos      Cantos `json:"cantos"`
+	ID           string `json:"id"`
+	Etiqueta     string `json:"etiqueta"`
+	Largo        int    `json:"largo"`
+	Ancho        int    `json:"ancho"`
+	Cantidad     int    `json:"cantidad"`
+	RespetaVeta  bool   `json:"respeta_veta"`
+	VetaVertical bool   `json:"veta_vertical,omitempty"`
+	Cantos       Cantos `json:"cantos"`
+}
+
+// puedeGirar dice si la pieza se puede colocar en esa orientación. La veta
+// de la placa va a lo largo (eje X): una pieza con veta horizontal va sin
+// girar y una con veta vertical va girada.
+func puedeGirar(p Pieza, rotada bool) bool {
+	return !p.RespetaVeta || rotada == p.VetaVertical
 }
 
 // Retazo es un sobrante de placa disponible para reutilizar.
@@ -130,6 +141,9 @@ func Optimizar(p Parametros, piezas []Pieza) (Resultado, error) {
 		}
 		if !p.TieneVeta {
 			pz.RespetaVeta = false
+		}
+		if !pz.RespetaVeta {
+			pz.VetaVertical = false
 		}
 		for i := 1; i <= cant; i++ {
 			unidades = append(unidades, unidad{pieza: pz, numero: i})
@@ -238,7 +252,7 @@ func colocarEnAbiertas(placas []*PlacaUsada, u unidad, kerf int) bool {
 	for pi, pl := range placas {
 		for li, l := range pl.libres {
 			for _, rot := range []bool{false, true} {
-				if rot && u.pieza.RespetaVeta {
+				if !puedeGirar(u.pieza, rot) {
 					continue
 				}
 				w, h := dims(u.pieza, rot)
@@ -307,10 +321,10 @@ func dims(p Pieza, rotada bool) (int, int) {
 }
 
 func orientacion(p Pieza, r Rect) (bool, bool) {
-	if p.Largo <= r.Largo && p.Ancho <= r.Ancho {
+	if puedeGirar(p, false) && p.Largo <= r.Largo && p.Ancho <= r.Ancho {
 		return false, true
 	}
-	if !p.RespetaVeta && p.Ancho <= r.Largo && p.Largo <= r.Ancho {
+	if puedeGirar(p, true) && p.Ancho <= r.Largo && p.Largo <= r.Ancho {
 		return true, true
 	}
 	return false, false

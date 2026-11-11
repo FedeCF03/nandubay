@@ -1,5 +1,5 @@
 import {
-  BarChart3, Hammer, Home, Receipt, Package, Scissors, Sofa, Tags, Truck, Users, type LucideIcon,
+  BarChart3, ClipboardCheck, Hammer, Home, Receipt, Package, Scissors, Sofa, Tags, Truck, Users, type LucideIcon,
 } from 'lucide-react'
 
 export interface ItemNav { ruta: string; titulo: string; icono: LucideIcon; permiso?: string }
@@ -16,7 +16,8 @@ export const navegacion: { grupo: string; items: ItemNav[] }[] = [
   {
     grupo: 'Taller',
     items: [
-      { ruta: '/cortes', titulo: 'Cortes', icono: Scissors, permiso: 'cortes.ver' },
+      { ruta: '/cortes', titulo: 'Optimizador de cortes', icono: Scissors, permiso: 'cortes.ver' },
+      { ruta: '/cortes-optimizados', titulo: 'Cortes optimizados', icono: ClipboardCheck, permiso: 'cortes.ver' },
       { ruta: '/muebles', titulo: 'Muebles modelo', icono: Sofa, permiso: 'pedidos.ver' },
     ],
   },

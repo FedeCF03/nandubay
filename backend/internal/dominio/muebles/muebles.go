@@ -24,14 +24,16 @@ func (e ErrValidacion) Error() string { return e.Mensaje }
 
 // Pieza es una pieza a cortar del mueble, de una placa del stock.
 type Pieza struct {
-	Nombre      string        `json:"nombre"`
-	PlacaID     int64         `json:"placa_id"`
-	Largo       int           `json:"largo"`
-	Ancho       int           `json:"ancho"`
-	Cantidad    int           `json:"cantidad"`
-	RespetaVeta bool          `json:"respeta_veta"`
-	Cantos      cortes.Cantos `json:"cantos"`
-	CantoID     int64         `json:"canto_id,omitempty"`
+	Nombre      string `json:"nombre"`
+	PlacaID     int64  `json:"placa_id"`
+	Largo       int    `json:"largo"`
+	Ancho       int    `json:"ancho"`
+	Cantidad    int    `json:"cantidad"`
+	RespetaVeta bool   `json:"respeta_veta"`
+	// VetaVertical: la veta va a lo ancho de la pieza (ver cortes.Pieza).
+	VetaVertical bool          `json:"veta_vertical,omitempty"`
+	Cantos       cortes.Cantos `json:"cantos"`
+	CantoID      int64         `json:"canto_id,omitempty"`
 }
 
 // Insumo es un producto del stock que lleva el mueble, por unidad de mueble.
@@ -117,7 +119,10 @@ func Validar(ms []Mueble, productos map[int64]stock.Producto) error {
 			if p.Largo <= 0 || p.Ancho <= 0 || p.Cantidad <= 0 || p.Cantidad > 1000 {
 				return ErrValidacion{campo, que + ": cargá largo, ancho y cantidad"}
 			}
-			if !entra(p.Largo, p.Ancho, p.RespetaVeta && placa.TieneVeta, placa) {
+			if !p.RespetaVeta {
+				p.VetaVertical = false
+			}
+			if !entra(p.Largo, p.Ancho, p.RespetaVeta && placa.TieneVeta, p.VetaVertical, placa) {
 				return ErrValidacion{campo, fmt.Sprintf("%s: %d × %d no entra en %s", que, p.Largo, p.Ancho, placa.Nombre)}
 			}
 			conCanto := p.Cantos.L1 || p.Cantos.L2 || p.Cantos.A1 || p.Cantos.A2
@@ -149,12 +154,12 @@ func util(p stock.Producto) (int, int) {
 	return p.LargoMM - 2*p.RefiladoMM, p.AnchoMM - 2*p.RefiladoMM
 }
 
-func entra(largo, ancho int, respetaVeta bool, placa stock.Producto) bool {
+func entra(largo, ancho int, respetaVeta, vertical bool, placa stock.Producto) bool {
 	L, A := util(placa)
-	if largo <= L && ancho <= A {
+	if (!respetaVeta || !vertical) && largo <= L && ancho <= A {
 		return true
 	}
-	return !respetaVeta && ancho <= L && largo <= A
+	return (!respetaVeta || vertical) && ancho <= L && largo <= A
 }
 
 // PlacaCalculada es cuántas placas de un material hacen falta y cómo se cortan.
@@ -167,6 +172,37 @@ type PlacaCalculada struct {
 	CostoUnitario   float64          `json:"costo_unitario"`
 	Costo           float64          `json:"costo"`
 	Plan            cortes.Resultado `json:"plan"`
+	// Con qué se optimizó, para volver a optimizar con retazos al cortar.
+	Parametros cortes.Parametros `json:"-"`
+	Piezas     []cortes.Pieza    `json:"-"`
+}
+
+// PlanDeCorte es lo que hay que cortar de una placa, listo para guardar como
+// corte pendiente.
+type PlanDeCorte struct {
+	PlacaID    int64
+	Nombre     string
+	Parametros cortes.Parametros
+	Piezas     []cortes.Pieza
+	Resultado  cortes.Resultado
+}
+
+// PlanesDeCorte vuelve a optimizar cada placa del presupuesto aprovechando los
+// retazos dados (los del depósito de donde sale). El presupuesto se cobra con
+// placas enteras; los retazos se aprovechan recién al cortar.
+func PlanesDeCorte(mat Materiales, retazos map[int64][]cortes.Retazo) ([]PlanDeCorte, error) {
+	var out []PlanDeCorte
+	for _, pc := range mat.Placas {
+		par := pc.Parametros
+		par.Retazos = retazos[pc.ProductoID]
+		res, err := cortes.Optimizar(par, pc.Piezas)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", pc.Nombre, err)
+		}
+		par.Retazos = nil
+		out = append(out, PlanDeCorte{PlacaID: pc.ProductoID, Nombre: pc.Nombre, Parametros: par, Piezas: pc.Piezas, Resultado: res})
+	}
+	return out, nil
 }
 
 // MaterialCalculado es un canto (en metros) o un insumo.
@@ -194,6 +230,8 @@ type Materiales struct {
 	PrecioPorMueble []float64 `json:"precio_por_mueble"`
 	// CantoPorMueble son los metros de canto de una unidad de cada mueble.
 	CantoPorMueble []float64 `json:"canto_por_mueble"`
+	// Cortes son los planes que quedan pendientes al confirmar (ver PlanesDeCorte).
+	Cortes []PlanDeCorte `json:"-"`
 }
 
 // Recargo es por cuánto se multiplica el costo de materiales para el precio.
@@ -239,7 +277,7 @@ func Calcular(ms []Mueble, productos map[int64]stock.Producto, kerf int, retazos
 			cp := cortes.Pieza{
 				ID: strconv.Itoa(i) + "-" + strconv.Itoa(j), Etiqueta: nombre,
 				Largo: p.Largo, Ancho: p.Ancho, Cantidad: p.Cantidad * m.Cantidad,
-				RespetaVeta: p.RespetaVeta, Cantos: p.Cantos,
+				RespetaVeta: p.RespetaVeta, VetaVertical: p.VetaVertical, Cantos: p.Cantos,
 			}
 			porPlaca[p.PlacaID] = append(porPlaca[p.PlacaID], cp)
 			a := float64(p.Largo*p.Ancho) * float64(p.Cantidad)
@@ -260,11 +298,13 @@ func Calcular(ms []Mueble, productos map[int64]stock.Producto, kerf int, retazos
 	costoPorArea := map[int64]float64{} // costo de placa por mm² de pieza
 	for _, id := range claves(porPlaca) {
 		pr := productos[id]
-		res, err := cortes.Optimizar(cortes.Parametros{
+		par := cortes.Parametros{
 			PlacaLargo: pr.LargoMM, PlacaAncho: pr.AnchoMM, TieneVeta: pr.TieneVeta,
 			Kerf: kerf, Refilado: pr.RefiladoMM, SobranteMinLargo: SobranteMinLargo, SobranteMinAncho: SobranteMinAncho,
-			Retazos: retazos[id],
-		}, porPlaca[id])
+		}
+		con := par
+		con.Retazos = retazos[id]
+		res, err := cortes.Optimizar(con, porPlaca[id])
 		if err != nil {
 			return out, fmt.Errorf("%s: %w", pr.Nombre, err)
 		}
@@ -274,6 +314,7 @@ func Calcular(ms []Mueble, productos map[int64]stock.Producto, kerf int, retazos
 		pc := PlacaCalculada{
 			ProductoID: id, Nombre: pr.Nombre, Cantidad: res.PlacasEnteras, Retazos: res.RetazosUsados, Aprovechamiento: res.Aprovechamiento,
 			CostoUnitario: pr.Costo, Costo: redondear(float64(res.PlacasEnteras) * pr.Costo), Plan: res,
+			Parametros: par, Piezas: porPlaca[id],
 		}
 		out.Placas = append(out.Placas, pc)
 		out.Costo += pc.Costo

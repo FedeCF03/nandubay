@@ -3,12 +3,13 @@ import { Link, useLocation, useParams } from 'wouter'
 import { ArrowLeft, Copy, Loader2, Package, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { SelectorCantos } from '@/cortes/SelectorCantos'
+import { SelectorVeta } from '@/cortes/SelectorVeta'
+import { conVeta, vetaDe, type Veta } from '@/cortes/veta'
 import type { Cantos } from '@/cortes/tipos'
 import { cn } from '@/lib/utils'
 import { fmtPesos, unidadCorta, useProductos, type ProductoConStock } from '@/stock/api'
@@ -28,7 +29,7 @@ interface PiezaForm {
   largo: string
   ancho: string
   cantidad: string
-  veta: boolean
+  veta: Veta
   cantos: Cantos
   canto_id: number
 }
@@ -64,7 +65,7 @@ function desdePresupuesto(p: PresupuestoMuebles, nombres: Map<number, ProductoCo
     cantidad: String(m.cantidad), precio: texto(m.precio_unitario),
     piezas: m.piezas.map((pz) => ({
       clave: siguiente++, nombre: pz.nombre, placa_id: pz.placa_id, largo: String(pz.largo), ancho: String(pz.ancho),
-      cantidad: String(pz.cantidad), veta: pz.respeta_veta, cantos: pz.cantos, canto_id: pz.canto_id ?? 0,
+      cantidad: String(pz.cantidad), veta: vetaDe(pz), cantos: pz.cantos, canto_id: pz.canto_id ?? 0,
     })),
     insumos: m.insumos.map((i) => ({
       clave: siguiente++, producto_id: i.producto_id, cantidad: texto(i.cantidad),
@@ -86,7 +87,7 @@ function aMuebles(ms: MuebleForm[], precio: (m: MuebleForm, i: number) => number
       .filter((p) => completas || (p.placa_id && entero(p.largo) && entero(p.ancho) && entero(p.cantidad)))
       .map((p) => ({
         nombre: p.nombre.trim(), placa_id: p.placa_id, largo: entero(p.largo), ancho: entero(p.ancho),
-        cantidad: entero(p.cantidad), respeta_veta: p.veta, cantos: p.cantos,
+        cantidad: entero(p.cantidad), ...conVeta(p.veta), cantos: p.cantos,
         canto_id: tieneCanto(p.cantos) ? p.canto_id || undefined : undefined,
       })),
     insumos: m.insumos
@@ -155,7 +156,7 @@ function Formulario({ presupuesto, productos }: { presupuesto?: PresupuestoMuebl
       ...x,
       piezas: [...x.piezas, {
         clave: siguiente++, nombre: '', placa_id: placa, largo: '', ancho: '', cantidad: '1',
-        veta: porId.get(placa)?.tiene_veta ?? false, cantos: sinCantos(), canto_id: ultima?.canto_id || cantos[0]?.id || 0,
+        veta: porId.get(placa)?.tiene_veta ? 'h' : 'no', cantos: sinCantos(), canto_id: ultima?.canto_id || cantos[0]?.id || 0,
       }],
     }))
   }
@@ -274,7 +275,7 @@ function Formulario({ presupuesto, productos }: { presupuesto?: PresupuestoMuebl
                         <Input value={p.nombre} placeholder={`Pieza ${j + 1}`} aria-label={`Nombre de la pieza ${j + 1} (opcional)`}
                           className="col-span-3 md:col-span-1" onChange={(e) => cambiarPieza(m.clave, p.clave, { nombre: e.target.value })} />
                         <Select value={p.placa_id ? String(p.placa_id) : ''}
-                          onValueChange={(v) => cambiarPieza(m.clave, p.clave, { placa_id: Number(v), veta: porId.get(Number(v))?.tiene_veta ?? false })}>
+                          onValueChange={(v) => cambiarPieza(m.clave, p.clave, { placa_id: Number(v), veta: porId.get(Number(v))?.tiene_veta ? 'h' : 'no' })}>
                           <SelectTrigger className="col-span-3 w-full md:col-span-1" aria-label={`Placa de la pieza ${j + 1}`}>
                             <SelectValue placeholder="Placa" />
                           </SelectTrigger>
@@ -291,10 +292,8 @@ function Formulario({ presupuesto, productos }: { presupuesto?: PresupuestoMuebl
                         <div className="col-span-2 flex items-center gap-3 md:col-span-1">
                           <SelectorCantos valor={p.cantos} onChange={(c) => cambiarPieza(m.clave, p.clave, { cantos: c })} />
                           {placa?.tiene_veta && (
-                            <label className="flex items-center gap-1.5 text-xs whitespace-nowrap">
-                              <Checkbox checked={p.veta} onCheckedChange={(v) => cambiarPieza(m.clave, p.clave, { veta: v === true })} />
-                              Veta
-                            </label>
+                            <SelectorVeta valor={p.veta} etiqueta={`Veta de la pieza ${j + 1}`}
+                              onChange={(v) => cambiarPieza(m.clave, p.clave, { veta: v })} />
                           )}
                         </div>
                         <Button type="button" variant="ghost" size="icon" aria-label={`Quitar pieza ${j + 1}`}

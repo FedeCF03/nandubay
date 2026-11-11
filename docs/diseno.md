@@ -235,12 +235,29 @@ despiece y los materiales y una hoja apaisada por placa, con la lista de piezas 
   el pedido que lo generó (`pedido_origen_id`) y el que lo usó (`pedido_uso_id`).
 - Se cargan a mano en Stock > Retazos (no pueden ser más grandes que la placa) y se descartan desde ahí.
 - El presupuesto de muebles se calcula siempre con placas enteras, sin retazos.
-  Al confirmar, el plan se guarda en `pedidos.materiales` y los sobrantes grandes
-  de cada placa se guardan como retazos nuevos.
+  Al confirmar se descuentan el canto y los herrajes, el plan se guarda en
+  `pedidos.materiales` y queda un **corte optimizado** pendiente por placa,
+  optimizado con los retazos del depósito de salida.
 - Precio de cada mueble: costo de materiales × 1,7 (`muebles.Recargo`), redondeado a
   la centena. Solo un mueble sin piezas ni herrajes lleva precio a mano.
-- Al cancelar, los retazos usados vuelven a disponibles y los generados que nadie usó se descartan.
 - El optimizador suelto (Cortes) puede traer los retazos de una placa del stock o cargarlos a mano.
+
+## Cortes optimizados
+
+- Tabla `planes_corte` (estado pendiente, cortado o anulado) con la placa, el
+  depósito, los parámetros, las piezas y el resultado en jsonb.
+- Se crean desde el optimizador ("Guardar para cortar", con una placa del stock
+  y un depósito) o al confirmar un presupuesto de muebles.
+- "Se cortó" (permiso `cortes.confirmar`) hace todo en una transacción:
+  - descuenta las placas enteras con un movimiento `corte`, que no es "venta", así
+    cancelar la venta no las devuelve;
+  - marca como usados los retazos del plan (si alguno ya no está, falla con 409 y
+    hay que tocar "Recalcular");
+  - guarda los sobrantes como retazos con `plan_origen_id`.
+- Cancelar una venta anula sus cortes pendientes. Los que ya se cortaron quedan como están.
+- Veta por pieza: sin veta, horizontal (a lo largo de la pieza) o vertical (a lo
+  ancho, `veta_vertical`). La veta de la placa va a lo largo, así que una pieza
+  vertical se coloca girada.
 
 ## Login y permisos
 
