@@ -235,7 +235,7 @@ type Materiales struct {
 }
 
 // Recargo es por cuánto se multiplica el costo de materiales para el precio.
-const Recargo = 1.7
+const Recargo = 2.7
 
 // PrecioDe es el precio de venta para un costo de materiales.
 func PrecioDe(costo float64) float64 {

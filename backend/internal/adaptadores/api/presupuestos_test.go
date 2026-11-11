@@ -217,15 +217,15 @@ func TestRetazos(t *testing.T) {
 	}
 
 	// El presupuesto no usa retazos: se calcula con placas enteras y el
-	// precio es el costo × 1,7 (aunque se mande otro).
+	// precio es el costo × 2,7 (aunque se mande otro).
 	id := presupuesto(700, 300, 2)
 	_, p := c.pedir("GET", "/api/v1/presupuestos/"+itoa(id), nil)
 	pl := p["materiales"].(map[string]any)["placas"].([]any)[0].(map[string]any)
 	if pl["cantidad"] != 1.0 || pl["retazos"] != 0.0 || pl["costo"] != 50000.0 {
 		t.Fatalf("sin retazos: %v", pl)
 	}
-	if m := p["muebles"].([]any)[0].(map[string]any); m["precio_unitario"] != 85000.0 {
-		t.Errorf("precio = %v, quería 85000 (50000 × 1,7)", m["precio_unitario"])
+	if m := p["muebles"].([]any)[0].(map[string]any); m["precio_unitario"] != 135000.0 {
+		t.Errorf("precio = %v, quería 135000 (50000 × 2,7)", m["precio_unitario"])
 	}
 	if st, r := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/confirmar", map[string]any{"deposito_id": laPlata}); st != http.StatusOK {
 		t.Fatalf("confirmar: %d %v", st, r)

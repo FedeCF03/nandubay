@@ -123,7 +123,7 @@ func TestProductosUsados(t *testing.T) {
 }
 
 func TestPrecioDe(t *testing.T) {
-	casos := map[float64]float64{0: 0, 100: 200, 1000: 1700, 50000: 85000, 12345: 21000}
+	casos := map[float64]float64{0: 0, 100: 300, 1000: 2700, 50000: 135000, 12345: 33400}
 	for costo, quiero := range casos {
 		if got := PrecioDe(costo); got != quiero {
 			t.Errorf("PrecioDe(%v) = %v, quería %v", costo, got, quiero)
