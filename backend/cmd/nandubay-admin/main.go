@@ -17,9 +17,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/FedeCF03/nandubay/backend/internal/adaptadores/postgres"
-	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
-	"github.com/FedeCF03/nandubay/backend/internal/plataforma/seguridad"
+	"github.com/FedeCF03/nandubay/backend/internal/repositorios"
+	"github.com/FedeCF03/nandubay/backend/internal/seguridad"
+	"github.com/FedeCF03/nandubay/backend/internal/servicios"
 )
 
 func main() {
@@ -50,20 +50,20 @@ func main() {
 	}
 
 	ctx := context.Background()
-	pool, err := postgres.Conectar(ctx, os.Getenv("DATABASE_URL"))
+	pool, err := repositorios.Conectar(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
-	if err := postgres.Migrar(pool); err != nil {
+	if err := repositorios.Migrar(pool); err != nil {
 		fmt.Fprintln(os.Stderr, "error en migraciones:", err)
 		os.Exit(1)
 	}
-	casos := &aplicacion.ServicioAcceso{
-		Repo: &postgres.RepoAcceso{DB: pool}, Hasher: &seguridad.Bcrypt{}, Tokens: seguridad.Tokens{},
+	casos := &servicios.ServicioAcceso{
+		Repo: &repositorios.RepoAcceso{DB: pool}, Hasher: &seguridad.Bcrypt{}, Tokens: seguridad.Tokens{},
 	}
-	id, err := casos.CrearCarpinteria(ctx, aplicacion.NuevaCarpinteria{
+	id, err := casos.CrearCarpinteria(ctx, servicios.NuevaCarpinteria{
 		Nombre: *nombre, Sucursal: *sucursal, AdminNombre: *adminNombre, AdminEmail: *adminEmail, AdminClave: clave,
 	})
 	if err != nil {

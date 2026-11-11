@@ -11,11 +11,11 @@ import (
 	"time"
 	_ "time/tzdata" // zona horaria de Argentina aunque la imagen no la traiga
 
-	"github.com/FedeCF03/nandubay/backend/internal/adaptadores/api"
-	"github.com/FedeCF03/nandubay/backend/internal/adaptadores/postgres"
-	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
-	"github.com/FedeCF03/nandubay/backend/internal/plataforma/config"
-	"github.com/FedeCF03/nandubay/backend/internal/plataforma/seguridad"
+	"github.com/FedeCF03/nandubay/backend/internal/config"
+	"github.com/FedeCF03/nandubay/backend/internal/handlers"
+	"github.com/FedeCF03/nandubay/backend/internal/repositorios"
+	"github.com/FedeCF03/nandubay/backend/internal/seguridad"
+	"github.com/FedeCF03/nandubay/backend/internal/servicios"
 )
 
 func main() {
@@ -33,7 +33,7 @@ func correr() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := postgres.Conectar(ctx, cfg.DatabaseURL)
+	pool, err := repositorios.Conectar(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
@@ -41,24 +41,24 @@ func correr() error {
 
 	if cfg.Migrar {
 		slog.Info("aplicando migraciones")
-		if err := postgres.Migrar(pool); err != nil {
+		if err := repositorios.Migrar(pool); err != nil {
 			return err
 		}
 	}
 
-	// Armado de las capas: adaptadores -> casos de uso -> API.
-	casosAcceso := &aplicacion.ServicioAcceso{
-		Repo:   &postgres.RepoAcceso{DB: pool},
+	// Armado: repositorios -> servicios -> handlers.
+	casosAcceso := &servicios.ServicioAcceso{
+		Repo:   &repositorios.RepoAcceso{DB: pool},
 		Hasher: &seguridad.Bcrypt{},
 		Tokens: seguridad.Tokens{},
 	}
-	servidor := &api.Servidor{
+	servidor := &handlers.Servidor{
 		Acceso:       casosAcceso,
-		Cortes:       aplicacion.ServicioCortes{Repo: &postgres.RepoCortes{DB: pool}},
-		Stock:        &aplicacion.ServicioStock{Repo: &postgres.RepoStock{DB: pool}},
-		Ventas:       &aplicacion.ServicioVentas{Repo: &postgres.RepoVentas{DB: pool}},
+		Cortes:       servicios.ServicioCortes{Repo: &repositorios.RepoCortes{DB: pool}},
+		Stock:        &servicios.ServicioStock{Repo: &repositorios.RepoStock{DB: pool}},
+		Ventas:       &servicios.ServicioVentas{Repo: &repositorios.RepoVentas{DB: pool}},
 		Salud:        pool.Ping,
-		Limitador:    api.NuevoLimitador(10, 15*time.Minute),
+		Limitador:    handlers.NuevoLimitador(10, 15*time.Minute),
 		CORSOrigen:   cfg.CORSOrigen,
 		CookieSegura: cfg.CookieSegura,
 	}
