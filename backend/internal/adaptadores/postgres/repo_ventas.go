@@ -593,12 +593,12 @@ func (r *RepoVentas) Modificar(ctx context.Context, carpinteriaID, usuarioID, id
 			return err
 		}
 		if c.Materiales != nil && c.DepositoID != nil {
-			if err := usarRetazos(ctx, tx, carpinteriaID, id, *c.DepositoID, c.Materiales); err != nil {
+			if err := guardarMateriales(ctx, tx, carpinteriaID, usuarioID, id, *c.DepositoID, c.Materiales); err != nil {
 				return err
 			}
 		}
 		if c.Estado != nil && *c.Estado == ventas.Cancelado {
-			if err := devolverRetazos(ctx, tx, id); err != nil {
+			if err := anularCortesPendientes(ctx, tx, id); err != nil {
 				return err
 			}
 		}

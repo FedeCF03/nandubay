@@ -3,6 +3,7 @@ import { Link, useRoute, useSearch } from 'wouter'
 import { ArrowLeft, Loader2, Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PlacaSVG } from '@/cortes/PlacaSVG'
+import { nombreVeta, vetaDe } from '@/cortes/veta'
 import type { Cantos, Pieza } from '@/cortes/tipos'
 import { fmtNumero, unidadCorta, useProductos } from '@/stock/api'
 import { fmtDia, medidas, numeroVenta } from '@/ventas/api'
@@ -59,7 +60,7 @@ function Hojas({ p, soloMueble }: { p: PresupuestoMuebles; soloMueble?: boolean 
   // Mismas ids que pone el backend (mueble-pieza), para los cantos y colores.
   const piezas: Pieza[] = useMemo(() => muebles.flatMap((m, i) => m.piezas.map((pz, j) => ({
     id: `${i}-${j}`, etiqueta: pz.nombre, largo: pz.largo, ancho: pz.ancho,
-    cantidad: pz.cantidad * m.cantidad, respeta_veta: pz.respeta_veta, cantos: pz.cantos,
+    cantidad: pz.cantidad * m.cantidad, respeta_veta: pz.respeta_veta, veta_vertical: pz.veta_vertical, cantos: pz.cantos,
   }))), [muebles])
   const porId = new Map(piezas.map((x) => [x.id, x]))
   const titulo = `Presupuesto N° ${numeroVenta(v.numero)} · ${v.cliente.nombre}${soloMueble ? ` · ${muebles[0].nombre}` : ''}`
@@ -121,6 +122,7 @@ function Hojas({ p, soloMueble }: { p: PresupuestoMuebles; soloMueble?: boolean 
                     <th className="py-1">Placa</th>
                     <th className="py-1 text-right">Largo × ancho</th>
                     <th className="py-1 text-right">Cant.</th>
+                    <th className="py-1 pl-3">Veta</th>
                     <th className="py-1 pl-3">Canto</th>
                   </tr>
                 </thead>
@@ -134,6 +136,7 @@ function Hojas({ p, soloMueble }: { p: PresupuestoMuebles; soloMueble?: boolean 
                         {pz.cantidad * m.cantidad}
                         {m.cantidad > 1 && <span className="text-neutral-500"> ({pz.cantidad}×{m.cantidad})</span>}
                       </td>
+                      <td className="py-1 pl-3">{nombre.get(pz.placa_id)?.tiene_veta && vetaDe(pz) !== 'no' ? nombreVeta[vetaDe(pz)] : '—'}</td>
                       <td className="py-1 pl-3">{tieneCanto(pz.cantos) ? lados(pz.cantos) : '—'}</td>
                     </tr>
                   ))}

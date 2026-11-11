@@ -5,7 +5,7 @@ import { fmtNumero, unidadCorta, useMovimientos, type Movimiento, type ProductoC
 
 const nombreMov: Record<Movimiento['tipo'], string> = {
   compra: 'Ingreso', venta: 'Venta', ajuste: 'Ajuste', traspaso_entrada: 'Traspaso (entra)',
-  traspaso_salida: 'Traspaso (sale)', devolucion: 'Devolución',
+  traspaso_salida: 'Traspaso (sale)', devolucion: 'Devolución', corte: 'Corte',
 }
 
 const fecha = new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short' })

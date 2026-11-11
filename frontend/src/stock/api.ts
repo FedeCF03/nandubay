@@ -45,7 +45,7 @@ export interface Movimiento {
   id: number
   producto_id: number
   deposito_id: number
-  tipo: 'compra' | 'venta' | 'ajuste' | 'traspaso_entrada' | 'traspaso_salida' | 'devolucion'
+  tipo: 'compra' | 'venta' | 'ajuste' | 'traspaso_entrada' | 'traspaso_salida' | 'devolucion' | 'corte'
   cantidad: number
   costo_unitario?: number
   nota?: string

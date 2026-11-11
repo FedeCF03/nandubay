@@ -54,7 +54,7 @@ func correr() error {
 	}
 	servidor := &api.Servidor{
 		Acceso:       casosAcceso,
-		Cortes:       aplicacion.ServicioCortes{},
+		Cortes:       aplicacion.ServicioCortes{Repo: &postgres.RepoCortes{DB: pool}},
 		Stock:        &aplicacion.ServicioStock{Repo: &postgres.RepoStock{DB: pool}},
 		Ventas:       &aplicacion.ServicioVentas{Repo: &postgres.RepoVentas{DB: pool}},
 		Salud:        pool.Ping,

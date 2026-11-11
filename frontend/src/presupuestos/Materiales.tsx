@@ -65,7 +65,7 @@ export function ResumenMateriales({ mat }: { mat: Materiales }) {
 function piezasDePlan(muebles: Mueble[]): Pieza[] {
   return muebles.flatMap((m, i) => m.piezas.map((p, j) => ({
     id: `${i}-${j}`, etiqueta: p.nombre, largo: p.largo, ancho: p.ancho,
-    cantidad: p.cantidad * m.cantidad, respeta_veta: p.respeta_veta, cantos: p.cantos,
+    cantidad: p.cantidad * m.cantidad, respeta_veta: p.respeta_veta, veta_vertical: p.veta_vertical, cantos: p.cantos,
   })))
 }
 

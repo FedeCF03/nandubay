@@ -3,13 +3,14 @@ import { Link, useParams } from 'wouter'
 import { ArrowLeft, Loader2, Package, Plus, Printer, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { usePermiso } from '@/auth/sesion'
 import { SelectorCantos } from '@/cortes/SelectorCantos'
+import { IconoVeta, SelectorVeta } from '@/cortes/SelectorVeta'
+import { conVeta, nombreVeta, vetaDe, type Veta } from '@/cortes/veta'
 import type { Cantos } from '@/cortes/tipos'
 import { cn } from '@/lib/utils'
 import { fmtNumero, fmtPesos, unidadCorta, useProductos, type ProductoConStock } from '@/stock/api'
@@ -105,6 +106,7 @@ function Detalle({ p, i, productos }: { p: PresupuestoMuebles; i: number; produc
                         <TableHead>Placa</TableHead>
                         <TableHead className="text-right">Medida</TableHead>
                         <TableHead className="text-right">Cant.</TableHead>
+                        <TableHead>Veta</TableHead>
                         <TableHead>Canto</TableHead>
                         {edita && <TableHead className="w-10 pr-6" />}
                       </TableRow>
@@ -116,6 +118,11 @@ function Detalle({ p, i, productos }: { p: PresupuestoMuebles; i: number; produc
                           <TableCell className="max-w-40 truncate">{porId.get(pz.placa_id)?.nombre ?? '—'}</TableCell>
                           <TableCell className="text-right whitespace-nowrap tabular-nums">{pz.largo} × {pz.ancho}</TableCell>
                           <TableCell className="text-right tabular-nums">{pz.cantidad}</TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {porId.get(pz.placa_id)?.tiene_veta && vetaDe(pz) !== 'no'
+                              ? <span className="inline-flex items-center gap-1"><IconoVeta veta={vetaDe(pz)} /> {nombreVeta[vetaDe(pz)]}</span>
+                              : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
                           <TableCell className="text-sm">
                             {tieneCanto(pz.cantos)
                               ? <><span className="font-mono">{lados(pz.cantos)}</span> <span className="text-muted-foreground">{porId.get(pz.canto_id ?? 0)?.nombre}</span></>
@@ -254,7 +261,7 @@ function NuevaPieza({ productos, anterior, guardando, onAgregar }: {
     const placa = anterior?.placa_id ?? placas[0]?.id ?? 0
     return {
       nombre: '', placa_id: placa, largo: '', ancho: '', cantidad: '1',
-      veta: porId.get(placa)?.tiene_veta ?? false, cantos: sinCantos(), canto_id: anterior?.canto_id || cantos[0]?.id || 0,
+      veta: (porId.get(placa)?.tiene_veta ? 'h' : 'no') as Veta, cantos: sinCantos(), canto_id: anterior?.canto_id || cantos[0]?.id || 0,
     }
   }
   const [f, setF] = useState(inicial)
@@ -268,7 +275,7 @@ function NuevaPieza({ productos, anterior, guardando, onAgregar }: {
     if (!largo || !ancho || !cant) return setError('Completá largo, ancho y cantidad.')
     if (tieneCanto(f.cantos) && !f.canto_id) return setError('Elegí el canto.')
     onAgregar({
-      nombre: f.nombre.trim(), placa_id: f.placa_id, largo, ancho, cantidad: cant, respeta_veta: f.veta, cantos: f.cantos,
+      nombre: f.nombre.trim(), placa_id: f.placa_id, largo, ancho, cantidad: cant, ...conVeta(f.veta), cantos: f.cantos,
       canto_id: tieneCanto(f.cantos) ? f.canto_id : undefined,
     })
     setF({ ...inicial(), placa_id: f.placa_id, veta: f.veta, canto_id: f.canto_id })
@@ -282,7 +289,7 @@ function NuevaPieza({ productos, anterior, guardando, onAgregar }: {
         <Input value={f.nombre} placeholder="Nombre (opcional)" aria-label="Nombre de la pieza nueva" className="col-span-3 md:col-span-1"
           onChange={(e) => cambiar({ nombre: e.target.value })} />
         <Select value={f.placa_id ? String(f.placa_id) : ''}
-          onValueChange={(x) => cambiar({ placa_id: Number(x), veta: porId.get(Number(x))?.tiene_veta ?? false })}>
+          onValueChange={(x) => cambiar({ placa_id: Number(x), veta: porId.get(Number(x))?.tiene_veta ? 'h' : 'no' })}>
           <SelectTrigger className="col-span-3 w-full md:col-span-1" aria-label="Placa de la pieza nueva"><SelectValue placeholder="Placa" /></SelectTrigger>
           <SelectContent>{placas.map((pl) => <SelectItem key={pl.id} value={String(pl.id)}>{pl.nombre}</SelectItem>)}</SelectContent>
         </Select>
@@ -294,11 +301,7 @@ function NuevaPieza({ productos, anterior, guardando, onAgregar }: {
           onChange={(e) => cambiar({ cantidad: soloDigitos(e.target.value) })} />
         <div className="col-span-3 flex items-center gap-3 md:col-span-1">
           <SelectorCantos valor={f.cantos} onChange={(c) => cambiar({ cantos: c })} />
-          {placa?.tiene_veta && (
-            <label className="flex items-center gap-1.5 text-xs whitespace-nowrap">
-              <Checkbox checked={f.veta} onCheckedChange={(x) => cambiar({ veta: x === true })} /> Veta
-            </label>
-          )}
+          {placa?.tiene_veta && <SelectorVeta valor={f.veta} etiqueta="Veta de la pieza nueva" onChange={(v) => cambiar({ veta: v })} />}
         </div>
         {tieneCanto(f.cantos) && (
           <Select value={f.canto_id ? String(f.canto_id) : ''} onValueChange={(x) => cambiar({ canto_id: Number(x) })}>

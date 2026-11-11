@@ -1,10 +1,32 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"net/http"
 
+	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/cortes"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
+	"github.com/go-chi/chi/v5"
 )
+
+func (s *Servidor) rutasCortes(r chi.Router) {
+	r.With(requierePermiso("cortes.generar")).Post("/cortes/optimizar", s.optimizarCortes)
+	r.With(requierePermiso("cortes.ver")).Get("/cortes", s.listarCortes)
+	r.With(requierePermiso("cortes.ver")).Get("/cortes/{id}", s.verCorte)
+	r.With(requierePermiso("cortes.generar")).Post("/cortes", s.crearCorte)
+	r.With(requierePermiso("cortes.generar")).Post("/cortes/{id}/recalcular", s.accionCorte(func(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.CorteOptimizado, error) {
+		return s.Cortes.Recalcular(ctx, u, id)
+	}))
+	r.With(requierePermiso("cortes.generar")).Post("/cortes/{id}/anular", s.accionCorte(func(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.CorteOptimizado, error) {
+		return s.Cortes.AnularCorte(ctx, u, id)
+	}))
+	r.With(requierePermiso("cortes.confirmar")).Post("/cortes/{id}/confirmar", s.accionCorte(func(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.CorteOptimizado, error) {
+		return s.Cortes.ConfirmarCorte(ctx, u, id)
+	}))
+}
 
 type pedidoOptimizar struct {
 	Parametros   cortes.Parametros `json:"parametros"`
@@ -27,4 +49,69 @@ func (s *Servidor) optimizarCortes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responderJSON(w, http.StatusOK, plan)
+}
+
+func (s *Servidor) listarCortes(w http.ResponseWriter, r *http.Request) {
+	cs, err := s.Cortes.ListarCortes(r.Context(), UsuarioDe(r.Context()), r.URL.Query().Get("estado"))
+	if err != nil {
+		responderErrorCortes(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusOK, cs)
+}
+
+func (s *Servidor) verCorte(w http.ResponseWriter, r *http.Request) {
+	id, ok := idDe(w, r)
+	if !ok {
+		return
+	}
+	c, err := s.Cortes.VerCorte(r.Context(), UsuarioDe(r.Context()), id)
+	if err != nil {
+		responderErrorCortes(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusOK, c)
+}
+
+func (s *Servidor) crearCorte(w http.ResponseWriter, r *http.Request) {
+	var n aplicacion.CorteNuevo
+	if !leerJSON(w, r, &n) {
+		return
+	}
+	c, err := s.Cortes.CrearCorte(r.Context(), UsuarioDe(r.Context()), n)
+	if err != nil {
+		responderErrorCortes(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusCreated, c)
+}
+
+// accionCorte arma el handler de una acción sobre un corte (recalcular,
+// anular o confirmar), que devuelve el corte como queda.
+func (s *Servidor) accionCorte(fn func(ctx context.Context, u *acceso.Usuario, id int64) (aplicacion.CorteOptimizado, error)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idDe(w, r)
+		if !ok {
+			return
+		}
+		c, err := fn(r.Context(), UsuarioDe(r.Context()), id)
+		if err != nil {
+			responderErrorCortes(w, r, err)
+			return
+		}
+		responderJSON(w, http.StatusOK, c)
+	}
+}
+
+func responderErrorCortes(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, aplicacion.ErrCorteNoEncontrado):
+		responderError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, aplicacion.ErrCorteEstado):
+		responderError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, stock.ErrStockInsuficiente):
+		responderError(w, http.StatusUnprocessableEntity, err.Error())
+	default:
+		responderErrorStock(w, r, err)
+	}
 }

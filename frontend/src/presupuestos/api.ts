@@ -11,6 +11,7 @@ export interface PiezaMueble {
   ancho: number
   cantidad: number
   respeta_veta: boolean
+  veta_vertical?: boolean
   cantos: Cantos
   canto_id?: number
 }

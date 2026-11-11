@@ -17,6 +17,8 @@ const FormVenta = lazy(() => import('@/pages/FormVenta'))
 const Presupuestos = lazy(() => import('@/pages/Presupuestos'))
 const FormPresupuesto = lazy(() => import('@/pages/FormPresupuesto'))
 const MuebleDetalle = lazy(() => import('@/pages/MuebleDetalle'))
+const CortesOptimizados = lazy(() => import('@/pages/CortesOptimizados'))
+const CorteDetalle = lazy(() => import('@/pages/CorteDetalle'))
 const PlanoCortes = lazy(() => import('@/pages/PlanoCortes'))
 const Boleta = lazy(() => import('@/pages/Boleta'))
 const Proximamente = lazy(() => import('@/pages/Proximamente'))
@@ -53,6 +55,8 @@ export default function App() {
         <Switch>
           <Route path="/" component={Inicio} />
           <Route path="/cortes" component={Cortes} />
+          <Route path="/cortes-optimizados" component={CortesOptimizados} />
+          <Route path="/cortes-optimizados/:id" component={CorteDetalle} />
           <Route path="/stock" component={Stock} />
           <Route path="/categorias" component={Categorias} />
           <Route path="/ventas" component={Ventas} />

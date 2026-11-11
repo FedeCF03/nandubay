@@ -179,3 +179,32 @@ func TestRetazosAntesQueLaPlacaAbierta(t *testing.T) {
 		}
 	}
 }
+
+func TestVetaVertical(t *testing.T) {
+	p := Parametros{PlacaLargo: 2600, PlacaAncho: 1830, TieneVeta: true, Kerf: 3}
+	// Horizontal: va sin girar. Vertical: va girada (el ancho de la pieza
+	// queda en el sentido de la veta de la placa).
+	res, err := Optimizar(p, []Pieza{
+		{ID: "h", Largo: 800, Ancho: 400, Cantidad: 1, RespetaVeta: true},
+		{ID: "v", Largo: 800, Ancho: 400, Cantidad: 1, RespetaVeta: true, VetaVertical: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range res.Placas[0].Piezas {
+		if c.Rotada != (c.PiezaID == "v") {
+			t.Errorf("%s: rotada = %v", c.PiezaID, c.Rotada)
+		}
+	}
+	// Una pieza con veta vertical más larga que el ancho de la placa no entra.
+	res, _ = Optimizar(p, []Pieza{{ID: "x", Largo: 2000, Ancho: 300, Cantidad: 1, RespetaVeta: true, VetaVertical: true}})
+	if len(res.NoColocadas) != 1 {
+		t.Errorf("tenía que quedar sin colocar: %+v", res)
+	}
+	// Sin veta en la placa, la dirección no importa.
+	p.TieneVeta = false
+	res, _ = Optimizar(p, []Pieza{{ID: "x", Largo: 2000, Ancho: 300, Cantidad: 1, RespetaVeta: true, VetaVertical: true}})
+	if len(res.NoColocadas) != 0 {
+		t.Errorf("sin veta tenía que entrar: %+v", res)
+	}
+}

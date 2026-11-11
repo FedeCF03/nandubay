@@ -4,14 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strconv"
 
 	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/cortes"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
-	"github.com/FedeCF03/nandubay/backend/internal/dominio/ventas"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -20,7 +18,7 @@ func (r *RepoStock) ListarRetazos(ctx context.Context, carpinteriaID int64, f ap
 	err := EnCarpinteria(ctx, r.DB, carpinteriaID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT r.id, r.placa_id, p.nombre, r.deposito_id, d.nombre, r.largo_mm, r.ancho_mm, coalesce(r.nota, ''),
-			       coalesce('Venta N° ' || o.numero, ''), r.creado_en
+			       coalesce('Venta N° ' || o.numero, 'Corte #' || r.plan_origen_id, ''), r.creado_en
 			FROM retazos r
 			JOIN productos p ON p.id = r.placa_id
 			JOIN depositos d ON d.id = r.deposito_id
@@ -114,56 +112,4 @@ func (r *RepoVentas) BuscarMaterialesConfirmados(ctx context.Context, carpinteri
 		return nil, err
 	}
 	return &m, nil
-}
-
-// usarRetazos guarda el plan confirmado, marca como usados los retazos que usa
-// y guarda los sobrantes de cada placa como retazos nuevos del depósito.
-func usarRetazos(ctx context.Context, tx pgx.Tx, carpinteriaID, pedidoID, depositoID int64, mat *muebles.Materiales) error {
-	crudo, err := json.Marshal(mat)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE pedidos SET materiales = $2 WHERE id = $1`, pedidoID, crudo); err != nil {
-		return err
-	}
-	for _, pc := range mat.Placas {
-		for _, pl := range pc.Plan.Placas {
-			if pl.RetazoID != "" {
-				t, err := tx.Exec(ctx, `
-					UPDATE retazos SET estado = 'usado', pedido_uso_id = $2, usado_en = now()
-					WHERE id = $1::bigint AND estado = 'disponible' AND deposito_id = $3 AND placa_id = $4`,
-					pl.RetazoID, pedidoID, depositoID, pc.ProductoID)
-				if err != nil {
-					return err
-				}
-				if t.RowsAffected() == 0 {
-					return fmt.Errorf("%w: el retazo #%s de %s ya no está disponible en ese depósito; volvé a abrir el presupuesto",
-						ventas.ErrEstado, pl.RetazoID, pc.Nombre)
-				}
-			}
-			for _, s := range pl.Sobrantes {
-				if _, err := tx.Exec(ctx, `
-					INSERT INTO retazos (carpinteria_id, placa_id, deposito_id, largo_mm, ancho_mm, pedido_origen_id)
-					VALUES ($1, $2, $3, $4, $5, $6)`,
-					carpinteriaID, pc.ProductoID, depositoID, s.Largo, s.Ancho, pedidoID); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// devolverRetazos deshace usarRetazos al cancelar: los retazos usados vuelven a
-// estar disponibles y los que generó la venta (si nadie los usó) se descartan.
-func devolverRetazos(ctx context.Context, tx pgx.Tx, pedidoID int64) error {
-	if _, err := tx.Exec(ctx, `
-		UPDATE retazos SET estado = 'disponible', pedido_uso_id = NULL, usado_en = NULL
-		WHERE pedido_uso_id = $1 AND estado = 'usado'`, pedidoID); err != nil {
-		return err
-	}
-	_, err := tx.Exec(ctx, `
-		UPDATE retazos SET estado = 'descartado', usado_en = now()
-		WHERE pedido_origen_id = $1 AND estado = 'disponible'`, pedidoID)
-	return err
 }

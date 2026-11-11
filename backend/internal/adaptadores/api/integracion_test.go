@@ -90,7 +90,7 @@ var hasher = &seguridad.Bcrypt{Costo: 4}
 func preparar(t *testing.T) (*pgxpool.Pool, *aplicacion.ServicioAcceso, *httptest.Server) {
 	pool := baseDePrueba(t)
 	svc := &aplicacion.ServicioAcceso{Repo: &postgres.RepoAcceso{DB: pool}, Hasher: hasher, Tokens: seguridad.Tokens{}}
-	s := &Servidor{Acceso: svc, Cortes: aplicacion.ServicioCortes{}, Stock: &aplicacion.ServicioStock{Repo: &postgres.RepoStock{DB: pool}},
+	s := &Servidor{Acceso: svc, Cortes: aplicacion.ServicioCortes{Repo: &postgres.RepoCortes{DB: pool}}, Stock: &aplicacion.ServicioStock{Repo: &postgres.RepoStock{DB: pool}},
 		Ventas: &aplicacion.ServicioVentas{Repo: &postgres.RepoVentas{DB: pool}},
 		Salud:  pool.Ping, Limitador: NuevoLimitador(5, time.Minute)}
 	srv := httptest.NewServer(s.Router())

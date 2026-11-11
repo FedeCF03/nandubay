@@ -8,6 +8,8 @@ export interface Pieza {
   ancho: number
   cantidad: number
   respeta_veta: boolean
+  // Con respeta_veta: true = la veta va a lo ancho de la pieza (vertical).
+  veta_vertical?: boolean
   cantos: Cantos
 }
 
