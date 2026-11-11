@@ -40,6 +40,18 @@ func stockEn(t *testing.T, c *cliente, productoID, depositoID int64) float64 {
 	return 0
 }
 
+// productoEnStock devuelve el producto como lo muestra la pantalla de stock.
+func productoEnStock(t *testing.T, c *cliente, productoID int64) map[string]any {
+	t.Helper()
+	for _, p := range listar(t, c) {
+		if int64(p["id"].(float64)) == productoID {
+			return p
+		}
+	}
+	t.Fatalf("no está el producto %d", productoID)
+	return nil
+}
+
 func (c *cliente) pedirLista(metodo, ruta string) (int, []map[string]any) {
 	c.t.Helper()
 	req, _ := http.NewRequest(metodo, c.srv.URL+ruta, nil)
@@ -128,12 +140,25 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 	if st, r := c.pedir("POST", ruta+"/confirmar", map[string]any{"deposito_id": principal}); st != http.StatusUnprocessableEntity {
 		t.Fatalf("confirmar sin stock: %d %v", st, r)
 	}
+	// Dónde está guardada la placa en La Plata: sale en la venta.
+	if st, r := c.pedir("PUT", fmt.Sprintf("/api/v1/productos/%d/ubicaciones", placaID), map[string]any{
+		"ubicaciones": []any{map[string]any{"deposito_id": laPlata, "ubicacion": "  Estante   B3 "}},
+	}); st != http.StatusNoContent {
+		t.Fatalf("guardar ubicación: %d %v", st, r)
+	}
 	st, v = c.pedir("POST", ruta+"/confirmar", map[string]any{"deposito_id": laPlata})
 	if st != http.StatusOK || v["estado"] != "confirmado" {
 		t.Fatalf("confirmar: %d %v", st, v)
 	}
-	if got := stockEn(t, c, placaID, laPlata); got != 1 {
-		t.Fatalf("stock en La Plata = %v, esperaba 1", got)
+	// Confirmar no descuenta: el stock sale cuando el cliente retira.
+	if got := stockEn(t, c, placaID, laPlata); got != 5 {
+		t.Fatalf("stock en La Plata = %v, esperaba 5", got)
+	}
+	if v["reservado_hasta"] != nil {
+		t.Fatalf("sin pagos no se reserva: %v", v["reservado_hasta"])
+	}
+	if u := v["lineas"].([]any)[0].(map[string]any)["ubicacion"]; u != "Estante B3" {
+		t.Fatalf("ubicación en la venta = %v", u)
 	}
 	if v["retira"].(map[string]any)["nombre"] != "La Plata" || v["retira_aqui"] != false {
 		t.Fatalf("se retira en La Plata: %v %v", v["retira"], v["retira_aqui"])
@@ -162,7 +187,13 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 	if st, _ := c.pedir("POST", ruta+"/pagos", map[string]any{"tipo": "sena", "monto": total + 1, "medio": "efectivo"}); st != http.StatusUnprocessableEntity {
 		t.Fatalf("pago de más: %d", st)
 	}
-	c.pedir("POST", ruta+"/pagos", map[string]any{"tipo": "sena", "monto": 100000, "medio": "efectivo"})
+	st, v = c.pedir("POST", ruta+"/pagos", map[string]any{"tipo": "sena", "monto": 100000, "medio": "efectivo"})
+	if st != http.StatusOK || v["reservado_hasta"] == nil {
+		t.Fatalf("la seña reserva: %d %v", st, v["reservado_hasta"])
+	}
+	if p := productoEnStock(t, c, placaID); p["reservado_total"].(float64) != 4 || p["disponible"].(float64) != 1 {
+		t.Fatalf("reservado = %v, disponible = %v", p["reservado_total"], p["disponible"])
+	}
 	st, v = c.pedir("POST", ruta+"/pagos", map[string]any{"tipo": "pago", "monto": total - 100000, "medio": "transferencia"})
 	if st != http.StatusOK || v["pagada"] != true || v["saldo"].(float64) != 0 {
 		t.Fatalf("pagar: %d %v", st, v)
@@ -181,6 +212,10 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 	if st != http.StatusOK || v["estado"] != "confirmado" || len(v["retiros"].([]any)) != 1 {
 		t.Fatalf("primer retiro: %d %v", st, v)
 	}
+	// Se descuenta lo que se llevó; lo que falta sigue reservado.
+	if p := productoEnStock(t, c, placaID); p["total"].(float64) != 3 || p["reservado_total"].(float64) != 2 {
+		t.Fatalf("después del primer retiro: total %v, reservado %v", p["total"], p["reservado_total"])
+	}
 	if st, _ := retirar(item(placaLinea, 2)); st != http.StatusUnprocessableEntity {
 		t.Fatalf("retirar más de lo que queda: %d", st)
 	}
@@ -194,9 +229,8 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 	if st, _ := retirar(item(placaLinea, 1)); st != http.StatusConflict {
 		t.Fatalf("una boleta entregada no sirve de nuevo: %d", st)
 	}
-	// El retiro no vuelve a tocar el stock: ya se descontó al confirmar.
-	if got := stockEn(t, c, placaID, laPlata); got != 1 {
-		t.Fatalf("stock en La Plata = %v", got)
+	if p := productoEnStock(t, c, placaID); p["total"].(float64) != 1 || p["reservado_total"].(float64) != 0 {
+		t.Fatalf("después de entregar: total %v, reservado %v", p["total"], p["reservado_total"])
 	}
 
 	historial := v["historial"].([]any)
@@ -227,7 +261,7 @@ func TestVentaCompraEnUnaSucursalRetiraEnOtra(t *testing.T) {
 	}
 }
 
-func TestCancelarDevuelveStock(t *testing.T) {
+func TestCancelarNoTocaStock(t *testing.T) {
 	_, _, c, _, placaID, _, laPlata := prepararVenta(t)
 	_, cli := c.pedir("POST", "/api/v1/clientes", map[string]any{"nombre": "Pedro"})
 	_, v := c.pedir("POST", "/api/v1/ventas", map[string]any{
@@ -236,7 +270,7 @@ func TestCancelarDevuelveStock(t *testing.T) {
 	})
 	ruta := fmt.Sprintf("/api/v1/ventas/%d", idDeJSON(v))
 	c.pedir("POST", ruta+"/confirmar", map[string]any{"deposito_id": laPlata})
-	if got := stockEn(t, c, placaID, laPlata); got != 1 {
+	if got := stockEn(t, c, placaID, laPlata); got != 5 {
 		t.Fatalf("stock = %v", got)
 	}
 	c.pedir("POST", ruta+"/pagos", map[string]any{"tipo": "sena", "monto": 1000, "medio": "efectivo"})
@@ -248,9 +282,75 @@ func TestCancelarDevuelveStock(t *testing.T) {
 	if st != http.StatusOK || v["estado"] != "cancelado" {
 		t.Fatalf("cancelar: %d %v", st, v)
 	}
-	if got := stockEn(t, c, placaID, laPlata); got != 5 {
-		t.Fatalf("el stock tiene que volver: %v", got)
+	if p := productoEnStock(t, c, placaID); p["total"].(float64) != 5 || p["reservado_total"].(float64) != 0 {
+		t.Fatalf("cancelada no reserva ni descuenta: %v %v", p["total"], p["reservado_total"])
 	}
+}
+
+// Lo pagado y no retirado queda reservado 2 meses: no se le vende a otro, no
+// se traspasa y no se usa en otra venta. Vencida la reserva, vuelve a estar libre.
+func TestReservaEvitaSobreventa(t *testing.T) {
+	pool, _, c, carpID, placaID, _, laPlata := prepararVenta(t) // 5 placas en La Plata
+	_, cli := c.pedir("POST", "/api/v1/clientes", map[string]any{"nombre": "Pedro"})
+	nueva := func(cant float64) string {
+		_, v := c.pedir("POST", "/api/v1/ventas", map[string]any{
+			"cliente_id": idDeJSON(cli),
+			"lineas":     []any{map[string]any{"tipo": "producto", "producto_id": placaID, "cantidad": cant}},
+		})
+		return fmt.Sprintf("/api/v1/ventas/%d", idDeJSON(v))
+	}
+	a := nueva(4)
+	c.pedir("POST", a+"/pagos", map[string]any{"tipo": "sena", "monto": 1000, "medio": "efectivo"}) // seña antes de confirmar
+	st, v := c.pedir("POST", a+"/confirmar", map[string]any{"deposito_id": laPlata})
+	if st != http.StatusOK || v["reservado_hasta"] == nil {
+		t.Fatalf("confirmar con seña reserva: %d %v", st, v)
+	}
+
+	// Quedan 1 libre: otra venta de 2 no se confirma, una de 1 sí.
+	b := nueva(2)
+	if st, r := c.pedir("POST", b+"/confirmar", map[string]any{"deposito_id": laPlata}); st != http.StatusUnprocessableEntity {
+		t.Fatalf("confirmar sobre lo reservado: %d %v", st, r)
+	}
+	// Tampoco se traspasa lo reservado.
+	if st, r := c.pedir("POST", "/api/v1/stock/traspasos", map[string]any{
+		"producto_id": placaID, "deposito_id": laPlata, "destino_id": depositoNuevo(t, pool, carpID, "Gonnet"), "cantidad": 2,
+	}); st != http.StatusUnprocessableEntity {
+		t.Fatalf("traspasar lo reservado: %d %v", st, r)
+	}
+	// Confirmada sin pagar no reserva, y la seña falla si ya no hay libre.
+	cc := nueva(1)
+	if st, r := c.pedir("POST", cc+"/confirmar", map[string]any{"deposito_id": laPlata}); st != http.StatusOK {
+		t.Fatalf("confirmar 1: %d %v", st, r)
+	}
+	d := nueva(1)
+	c.pedir("POST", d+"/confirmar", map[string]any{"deposito_id": laPlata})
+	c.pedir("POST", d+"/pagos", map[string]any{"tipo": "sena", "monto": 100, "medio": "efectivo"}) // reserva la última
+	if st, r := c.pedir("POST", cc+"/pagos", map[string]any{"tipo": "sena", "monto": 100, "medio": "efectivo"}); st != http.StatusUnprocessableEntity {
+		t.Fatalf("señar sin stock libre: %d %v", st, r)
+	}
+	if p := productoEnStock(t, c, placaID); p["reservado_total"].(float64) != 5 || p["disponible"].(float64) != 0 {
+		t.Fatalf("reservado %v disponible %v", p["reservado_total"], p["disponible"])
+	}
+
+	// La reserva de A vence: sus placas vuelven a estar libres.
+	if err := repositorios.EnCarpinteria(context.Background(), pool, carpID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE pedidos SET reservado_hasta = now() - interval '1 day' WHERE id = $1`, idDeRuta(a))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if st, r := c.pedir("POST", b+"/confirmar", map[string]any{"deposito_id": laPlata}); st != http.StatusOK {
+		t.Fatalf("confirmar con la reserva vencida: %d %v", st, r)
+	}
+	if p := productoEnStock(t, c, placaID); p["reservado_total"].(float64) != 1 {
+		t.Fatalf("reservado después de vencer = %v", p["reservado_total"])
+	}
+}
+
+func idDeRuta(ruta string) int64 {
+	var id int64
+	fmt.Sscanf(ruta, "/api/v1/ventas/%d", &id)
+	return id
 }
 
 func TestPermisosDeVentas(t *testing.T) {

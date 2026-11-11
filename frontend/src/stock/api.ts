@@ -33,11 +33,21 @@ export interface Categoria {
   productos: number
 }
 
+// Las cantidades son lo que hay en el depósito. Lo reservado ya lo pagaron
+// clientes que todavía no lo retiraron: se descuenta cuando lo retiran.
 export interface ProductoConStock extends Producto {
   por_deposito: Record<string, number>
+  reservado: Record<string, number>
+  ubicaciones: Record<string, string>
   total: number
+  reservado_total: number
+  disponible: number
   bajo: boolean
 }
+
+// libreEn es lo que se puede vender en un depósito: lo que hay menos lo reservado.
+export const libreEn = (p: ProductoConStock, depositoID: number) =>
+  (p.por_deposito[String(depositoID)] ?? 0) - (p.reservado[String(depositoID)] ?? 0)
 
 export interface Deposito { id: number; nombre: string; sucursal_id: number; sucursal: string }
 
@@ -120,6 +130,18 @@ export function useBorrarCategoria() {
   return useMutation({
     mutationFn: (id: number) => delJSON<void>(`/api/v1/categorias/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: CLAVE }),
+  })
+}
+
+export function useGuardarUbicaciones() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ productoID, ubicaciones }: { productoID: number; ubicaciones: { deposito_id: number; ubicacion: string }[] }) =>
+      putJSON<void>(`/api/v1/productos/${productoID}/ubicaciones`, { ubicaciones }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: CLAVE })
+      qc.invalidateQueries({ queryKey: ['ventas', 'venta'] })
+    },
   })
 }
 

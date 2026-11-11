@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Loader2, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -11,8 +11,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { useUsuario } from '@/auth/sesion'
 import { usePresupuesto } from '@/presupuestos/api'
 import { cn } from '@/lib/utils'
-import { fmtNumero, fmtPesos, unidadCorta, useDepositos, useProductos } from '@/stock/api'
-import { mediosPago, pendiente, useAccionVenta, type Pago, type Venta } from './api'
+import { fmtNumero, fmtPesos, libreEn, unidadCorta, useDepositos, useProductos } from '@/stock/api'
+import {
+  fmtFechaCorta, MESES_RESERVA, mediosPago, pendiente, reservaVigente, useAccionVenta, type Pago, type Venta,
+} from './api'
 
 function Marco({ titulo, desc, onClose, onSubmit, children, boton, deshabilitado, pendiente: cargando, error, destructivo }: {
   titulo: string; desc?: ReactNode; onClose: () => void; onSubmit: () => void; children?: ReactNode
@@ -67,8 +69,12 @@ export function DialogoConfirmar({ venta, onClose }: { venta: Venta; onClose: ()
     const out: string[] = []
     for (const [pid, cant] of necesita) {
       const p = productos.find((x) => x.id === pid)
-      const hay = p?.por_deposito[String(depositoID)] ?? 0
-      if (hay < cant) out.push(`${p?.nombre ?? 'Producto'}: hay ${fmtNumero(hay)} de ${fmtNumero(cant)}`)
+      // Lo reservado para otras ventas pagadas no se puede vender.
+      const libre = p ? Math.max(0, libreEn(p, depositoID)) : 0
+      const reservado = p?.reservado[String(depositoID)] ?? 0
+      if (libre < cant) {
+        out.push(`${p?.nombre ?? 'Producto'}: hay ${fmtNumero(libre)} libres de ${fmtNumero(cant)}${reservado > 0 ? ` (${fmtNumero(reservado)} reservados)` : ''}`)
+      }
     }
     return out
   }
@@ -82,8 +88,8 @@ export function DialogoConfirmar({ venta, onClose }: { venta: Venta; onClose: ()
     <Marco titulo={`Confirmar venta N° ${venta.numero}`} onClose={onClose} pendiente={accion.isPending} error={accion.error}
       desc={muebles
         ? 'Se descuentan el canto y los herrajes del depósito que elijas y quedan los cortes pendientes en Cortes optimizados: las placas se descuentan cuando confirmes que se cortaron. El cliente retira los muebles en la sucursal de ese depósito.'
-        : 'Se descuenta el stock del depósito que elijas. El cliente retira en la sucursal de ese depósito.'}
-      boton="Confirmar y descontar stock" deshabilitado={!actual || actual.faltan.length > 0 || (muebles && presupuesto.isPending)}
+        : <>El cliente retira en la sucursal del depósito que elijas. El stock se descuenta <b>cuando retira</b>; si ya pagó algo, queda reservado {MESES_RESERVA} meses.</>}
+      boton={muebles ? 'Confirmar y descontar materiales' : 'Confirmar venta'} deshabilitado={!actual || actual.faltan.length > 0 || (muebles && presupuesto.isPending)}
       onSubmit={() => actual && accion.mutate({ accion: 'confirmar', deposito_id: actual.id }, { onSuccess: onClose })}>
       <div className="grid gap-2" role="radiogroup" aria-label="Depósito de salida">
         {opciones.map((d) => {
@@ -156,6 +162,11 @@ export function DialogoPago({ venta, onClose }: { venta: Venta; onClose: () => v
         Nota
         <Textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={2} placeholder="Opcional: n° de operación, quién pagó…" />
       </label>
+      {tipo !== 'devolucion' && venta.tipo === 'mostrador' && venta.estado !== 'presupuesto' && !reservaVigente(venta) && (
+        <p className="rounded-md bg-sky-500/10 p-3 text-sm text-sky-900 dark:text-sky-200">
+          Con este pago lo que falta retirar queda reservado {MESES_RESERVA} meses en {venta.deposito}.
+        </p>
+      )}
     </Marco>
   )
 }
@@ -175,7 +186,7 @@ export function DialogoRetiro({ venta, onClose }: { venta: Venta; onClose: () =>
 
   return (
     <Marco titulo={`Entregar venta N° ${venta.numero}`} onClose={onClose} pendiente={accion.isPending} error={accion.error}
-      desc="Cargá lo que se lleva ahora. Si se lleva una parte, el resto queda pendiente en la misma boleta."
+      desc={<>Cargá lo que se lleva ahora: se descuenta del stock de {venta.deposito}. Si se lleva una parte, el resto queda pendiente en la misma boleta{reservaVigente(venta) && venta.reservado_hasta ? <> y reservado hasta el {fmtFechaCorta(venta.reservado_hasta)}</> : null}.</>}
       boton={todo ? 'Entregar todo' : 'Registrar entrega parcial'} deshabilitado={items.length === 0}
       onSubmit={() => accion.mutate({ accion: 'retiros', items, nota }, { onSuccess: onClose })}>
       <div className="divide-y rounded-lg border">
@@ -188,6 +199,9 @@ export function DialogoRetiro({ venta, onClose }: { venta: Venta; onClose: () =>
                 <div className="text-muted-foreground">
                   Quedan {fmtNumero(pendiente(l))} {unidadCorta[l.unidad] ?? ''}{l.retirado > 0 && ` · ya retiró ${fmtNumero(l.retirado)}`}
                 </div>
+                {l.ubicacion && (
+                  <div className="flex items-center gap-1 text-xs font-medium text-primary"><MapPin className="size-3" /> {l.ubicacion}</div>
+                )}
                 {bloqueado(l.tipo) && <div className="text-xs text-amber-700 dark:text-amber-400">Se entrega cuando esté lista</div>}
               </div>
               <Input className="w-24 text-right" inputMode="decimal" value={cant[k]} disabled={bloqueado(l.tipo)}
@@ -210,7 +224,9 @@ export function DialogoCancelar({ venta, onClose }: { venta: Venta; onClose: () 
   const confirmada = venta.estado !== 'presupuesto'
   return (
     <Marco titulo={`¿Cancelar la venta N° ${venta.numero}?`} onClose={onClose} pendiente={accion.isPending} error={accion.error}
-      desc={confirmada ? `La mercadería vuelve al stock de ${venta.deposito}. No se puede deshacer.` : 'El presupuesto queda anulado. No se puede deshacer.'}
+      desc={!confirmada ? 'El presupuesto queda anulado. No se puede deshacer.'
+        : venta.tipo === 'muebles' ? `Los materiales vuelven al stock de ${venta.deposito}. No se puede deshacer.`
+          : 'La venta queda anulada y se libera lo reservado. No se puede deshacer.'}
       boton="Cancelar venta" destructivo
       onSubmit={() => accion.mutate({ accion: 'cancelar' }, { onSuccess: onClose })} />
   )

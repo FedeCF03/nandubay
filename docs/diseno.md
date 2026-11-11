@@ -8,7 +8,10 @@
   Un usuario puede tener un rol distinto en cada sucursal.
 - Los clientes finales solo ven sus presupuestos, con un link seguro (sin usuario).
 - Stock por depósito, con proveedores, compras y costos, alerta de stock mínimo
-  y reutilización de retazos. El stock se descuenta al confirmar el pedido.
+  y reutilización de retazos. Cada producto tiene su ubicación en cada depósito
+  (estante, pasillo). En el mostrador el stock se descuenta cuando el cliente
+  retira (también por partes); lo pagado y no retirado queda reservado 2 meses.
+  En los presupuestos de muebles los materiales se descuentan al confirmar.
 - Pedidos con varios muebles. Muebles modelo reutilizables con despiece paramétrico.
 - Estados del pedido: presupuesto, confirmado, en corte, en armado, listo, entregado (y cancelado).
 - Señas y pagos parciales como registro interno (sin facturación electrónica).

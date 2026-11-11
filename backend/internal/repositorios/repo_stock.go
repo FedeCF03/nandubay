@@ -55,7 +55,11 @@ func (r *RepoStock) ListarProductos(ctx context.Context, carpinteriaID int64, f 
 		rows, err := tx.Query(ctx, `
 			SELECT `+columnasProducto+`,
 			       coalesce(jsonb_object_agg(s.deposito_id, s.cantidad::float8) FILTER (WHERE s.deposito_id IS NOT NULL), '{}'),
-			       coalesce(sum(s.cantidad), 0)::float8
+			       coalesce(sum(s.cantidad), 0)::float8,
+			       coalesce(jsonb_object_agg(s.deposito_id, s.ubicacion) FILTER (WHERE s.ubicacion IS NOT NULL), '{}'),
+			       coalesce((SELECT jsonb_object_agg(r.deposito_id, r.cantidad) FROM (
+			           SELECT deposito_id, sum(cantidad)::float8 AS cantidad FROM v_stock_reservado
+			           WHERE producto_id = p.id GROUP BY deposito_id) r), '{}')
 			FROM productos p
 			LEFT JOIN stock s ON s.producto_id = p.id
 			WHERE `+strings.Join(conds, " AND ")+`
@@ -67,9 +71,13 @@ func (r *RepoStock) ListarProductos(ctx context.Context, carpinteriaID int64, f 
 		defer rows.Close()
 		for rows.Next() {
 			var p stock.ProductoConStock
-			if err := escanearProducto(rows, &p.Producto, &p.PorDeposito, &p.Total); err != nil {
+			if err := escanearProducto(rows, &p.Producto, &p.PorDeposito, &p.Total, &p.Ubicaciones, &p.Reservado); err != nil {
 				return err
 			}
+			for _, r := range p.Reservado {
+				p.ReservadoTotal += r
+			}
+			p.Disponible = p.Total - p.ReservadoTotal
 			out = append(out, p)
 		}
 		return rows.Err()
@@ -158,6 +166,37 @@ func (r *RepoStock) ListarDepositos(ctx context.Context, carpinteriaID int64) ([
 	return out, err
 }
 
+// GuardarUbicaciones guarda dónde está el producto en cada depósito. Una
+// ubicación vacía borra la que había.
+func (r *RepoStock) GuardarUbicaciones(ctx context.Context, carpinteriaID, productoID int64, us []stock.UbicacionNueva) error {
+	return EnCarpinteria(ctx, r.DB, carpinteriaID, func(tx pgx.Tx) error {
+		// Las claves foráneas no pasan por RLS: confirmar que el producto y
+		// los depósitos son de esta carpintería.
+		var ok bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM productos WHERE id = $1)`, productoID).Scan(&ok); err != nil {
+			return err
+		}
+		if !ok {
+			return stock.ErrNoEncontrado
+		}
+		for _, u := range us {
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM depositos WHERE id = $1 AND activo)`, u.DepositoID).Scan(&ok); err != nil {
+				return err
+			}
+			if !ok {
+				return stock.ErrNoEncontrado
+			}
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO stock (carpinteria_id, producto_id, deposito_id, cantidad, ubicacion) VALUES ($1, $2, $3, 0, $4)
+				ON CONFLICT (producto_id, deposito_id) DO UPDATE SET ubicacion = EXCLUDED.ubicacion`,
+				carpinteriaID, productoID, u.DepositoID, nulo(u.Ubicacion)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (r *RepoStock) RegistrarOperaciones(ctx context.Context, carpinteriaID, usuarioID int64, ops []stock.Operacion) error {
 	return EnCarpinteria(ctx, r.DB, carpinteriaID, func(tx pgx.Tx) error {
 		return aplicarOperaciones(ctx, tx, carpinteriaID, usuarioID, nil, ops)
@@ -198,6 +237,22 @@ func aplicarOperaciones(ctx context.Context, tx pgx.Tx, carpinteriaID, usuarioID
 				return fmt.Errorf("%s: %w", nombre, err)
 			}
 			return err
+		}
+		// Lo que sale para una venta, un corte o un traspaso no puede tocar lo
+		// reservado para otras ventas pagadas. Un ajuste sí: es lo que se contó.
+		if nuevo < saldo && (op.Tipo == stock.MovVenta || op.Tipo == stock.MovCorte || op.Tipo == stock.MovTraspasoSalida) {
+			var reservado float64
+			var nombre string
+			if err := tx.QueryRow(ctx, `
+					SELECT coalesce((SELECT sum(cantidad) FROM v_stock_reservado
+					                 WHERE producto_id = $1 AND deposito_id = $2 AND pedido_id IS DISTINCT FROM $3), 0)::float8,
+					       (SELECT nombre FROM productos WHERE id = $1)`,
+				op.ProductoID, op.DepositoID, pedidoID).Scan(&reservado, &nombre); err != nil {
+				return err
+			}
+			if err := stock.Faltante(nombre, saldo, reservado, saldo-nuevo); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.Exec(ctx, `UPDATE stock SET cantidad = $3 WHERE producto_id = $1 AND deposito_id = $2`,
 			op.ProductoID, op.DepositoID, nuevo); err != nil {

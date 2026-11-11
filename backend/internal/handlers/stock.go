@@ -17,6 +17,7 @@ type CasosStock interface {
 	CrearProducto(ctx context.Context, u *acceso.Usuario, p stock.Producto) (stock.Producto, error)
 	ActualizarProducto(ctx context.Context, u *acceso.Usuario, p stock.Producto) (stock.Producto, error)
 	ListarDepositos(ctx context.Context, u *acceso.Usuario) ([]stock.Deposito, error)
+	GuardarUbicaciones(ctx context.Context, u *acceso.Usuario, productoID int64, us []stock.UbicacionNueva) error
 	ListarMovimientos(ctx context.Context, u *acceso.Usuario, productoID int64) ([]stock.MovimientoRegistrado, error)
 	Ingresar(ctx context.Context, u *acceso.Usuario, productoID, depositoID int64, cantidad float64, costo *float64, nota string) error
 	Ajustar(ctx context.Context, u *acceso.Usuario, productoID, depositoID int64, contado float64, motivo string) error
@@ -36,6 +37,7 @@ func (s *Servidor) rutasStock(r chi.Router) {
 	r.With(requierePermiso("productos.editar")).Put("/productos/{id}", s.actualizarProducto)
 	r.With(requierePermiso("stock.ver")).Get("/productos/{id}/movimientos", s.listarMovimientos)
 	r.With(requierePermiso("stock.ver")).Get("/depositos", s.listarDepositos)
+	r.With(requierePermiso("stock.editar")).Put("/productos/{id}/ubicaciones", s.guardarUbicaciones)
 	r.With(requierePermiso("stock.editar")).Post("/stock/ingresos", s.ingresar)
 	r.With(requierePermiso("stock.editar")).Post("/stock/ajustes", s.ajustar)
 	r.With(requierePermiso("stock.editar")).Post("/stock/traspasos", s.traspasar)
@@ -46,6 +48,24 @@ func (s *Servidor) rutasStock(r chi.Router) {
 	r.With(requierePermiso("productos.editar")).Post("/categorias", s.crearCategoria)
 	r.With(requierePermiso("productos.editar")).Put("/categorias/{id}", s.actualizarCategoria)
 	r.With(requierePermiso("productos.editar")).Delete("/categorias/{id}", s.borrarCategoria)
+}
+
+func (s *Servidor) guardarUbicaciones(w http.ResponseWriter, r *http.Request) {
+	id, ok := idDe(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Ubicaciones []stock.UbicacionNueva `json:"ubicaciones"`
+	}
+	if !leerJSON(w, r, &in) {
+		return
+	}
+	if err := s.Stock.GuardarUbicaciones(r.Context(), UsuarioDe(r.Context()), id, in.Ubicaciones); err != nil {
+		responderErrorStock(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Servidor) listarRetazos(w http.ResponseWriter, r *http.Request) {

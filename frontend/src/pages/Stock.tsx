@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useSearch } from 'wouter'
 import {
-  AlertTriangle, ArrowLeftRight, History, MoreHorizontal, PackagePlus, Pencil, Plus, Scale, Search,
+  AlertTriangle, ArrowLeftRight, History, MapPin, MoreHorizontal, PackagePlus, Pencil, Plus, Scale, Search,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,7 @@ import {
   type Producto, type ProductoConStock, type TipoOperacion,
 } from '@/stock/api'
 import { DialogoOperacion } from '@/stock/DialogoOperacion'
+import { DialogoUbicacion } from '@/stock/DialogoUbicacion'
 import { FormProducto } from '@/stock/FormProducto'
 import { Movimientos } from '@/stock/Movimientos'
 import { Retazos } from '@/stock/Retazos'
@@ -29,6 +30,7 @@ type Accion =
   | { tipo: 'producto'; producto: Partial<Producto> | null }
   | { tipo: 'operacion'; operacion: TipoOperacion; producto: ProductoConStock }
   | { tipo: 'movimientos'; producto: ProductoConStock }
+  | { tipo: 'ubicacion'; producto: ProductoConStock }
 
 export default function Stock() {
   const [tipo, setTipo] = useState('')
@@ -70,6 +72,9 @@ export default function Stock() {
             <DropdownMenuItem onSelect={() => setAccion({ tipo: 'operacion', operacion: 'ajustes', producto: p })}>
               <Scale /> Ajuste por conteo
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setAccion({ tipo: 'ubicacion', producto: p })}>
+              <MapPin /> Ubicación
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>
         )}
@@ -91,12 +96,32 @@ export default function Stock() {
     <span className="tabular-nums">{fmtNumero(n)} <span className="text-xs text-muted-foreground">{unidadCorta[p.unidad]}</span></span>
   )
 
+  // Dónde está guardado: con un solo depósito, solo el lugar; con varios, la
+  // sucursal adelante.
+  const ubicaciones = (p: ProductoConStock) => {
+    const partes = depositos
+      .filter((d) => p.ubicaciones[d.id])
+      .map((d) => (depositos.length > 1 ? `${d.sucursal}: ${p.ubicaciones[d.id]}` : p.ubicaciones[d.id]))
+    if (partes.length === 0) return null
+    return (
+      <div className="flex items-center gap-1 text-xs text-primary">
+        <MapPin className="size-3 shrink-0 self-start mt-0.5 md:self-center md:mt-0" /> <span className="md:truncate">{partes.join(' · ')}</span>
+      </div>
+    )
+  }
+
+  const reservado = (n: number) => n > 0 && (
+    <div className="text-xs font-normal text-sky-700 dark:text-sky-400">{fmtNumero(n)} reservad{n === 1 ? 'o' : 'os'}</div>
+  )
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">Stock</h2>
-          <p className="text-muted-foreground">Placas, cantos y herrajes en todos los depósitos.</p>
+          <p className="text-muted-foreground">
+            Placas, cantos y herrajes en todos los depósitos. Lo reservado ya está pagado y se descuenta cuando el cliente lo retira.
+          </p>
         </div>
         {editaProductos && (
           <Button onClick={() => setAccion({ tipo: 'producto', producto: null })}>
@@ -184,14 +209,21 @@ export default function Stock() {
                       <div className="text-xs text-muted-foreground">
                         {[p.sku, detalle(p)].filter(Boolean).join(' · ')}
                       </div>
+                      {ubicaciones(p)}
                     </TableCell>
                     {columnas.map((d) => (
-                      <TableCell key={d.id} className="text-right">{cantidad(p, p.por_deposito[d.id] ?? 0)}</TableCell>
+                      <TableCell key={d.id} className="text-right">
+                        {cantidad(p, p.por_deposito[d.id] ?? 0)}
+                        {reservado(p.reservado[d.id] ?? 0)}
+                      </TableCell>
                     ))}
                     <TableCell className="text-right font-semibold">
                       <span className={cn('inline-flex items-center gap-1', p.bajo && 'text-amber-700 dark:text-amber-400')}>
                         {p.bajo && <AlertTriangle className="size-3.5" />}{cantidad(p, p.total)}
                       </span>
+                      {p.reservado_total > 0 && (
+                        <div className="text-xs font-normal text-muted-foreground">{fmtNumero(p.disponible)} libres</div>
+                      )}
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground tabular-nums">
                       {p.stock_minimo ? fmtNumero(p.stock_minimo) : '–'}
@@ -213,6 +245,7 @@ export default function Stock() {
                     <div className="font-medium">{p.nombre}</div>
                     {p.categoria && <div className="text-xs text-primary">{p.categoria}</div>}
                     <div className="truncate text-xs text-muted-foreground">{[p.sku, detalle(p)].filter(Boolean).join(' · ')}</div>
+                    {ubicaciones(p)}
                   </div>
                   {acciones(p)}
                 </div>
@@ -220,6 +253,11 @@ export default function Stock() {
                   <span className={cn('font-semibold', p.bajo && 'text-amber-700 dark:text-amber-400')}>
                     {p.bajo && <AlertTriangle className="mr-1 inline size-3.5" />}Total {cantidad(p, p.total)}
                   </span>
+                  {p.reservado_total > 0 && (
+                    <span className="text-xs text-sky-700 dark:text-sky-400">
+                      {fmtNumero(p.reservado_total)} reservados · {fmtNumero(p.disponible)} libres
+                    </span>
+                  )}
                   {depositos.length > 1 && depositos.map((d) => (
                     <span key={d.id} className="text-xs text-muted-foreground">
                       {d.sucursal}: {fmtNumero(p.por_deposito[d.id] ?? 0)}
@@ -237,6 +275,7 @@ export default function Stock() {
       {accion?.tipo === 'operacion' && (
         <DialogoOperacion tipo={accion.operacion} producto={accion.producto} onClose={() => setAccion(null)} />
       )}
+      {accion?.tipo === 'ubicacion' && <DialogoUbicacion producto={accion.producto} onClose={() => setAccion(null)} />}
       {accion?.tipo === 'movimientos' && <Movimientos producto={accion.producto} onClose={() => setAccion(null)} />}
     </div>
   )

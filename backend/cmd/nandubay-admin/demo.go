@@ -189,7 +189,10 @@ func (d *demo) productos() error {
 		{stock.Producto{Tipo: stock.TipoOtro, Sku: "DEMO-COLA", Nombre: "Cola vinílica 1 kg", Costo: 4200,
 			PrecioVenta: 6900, StockMinimo: 3}, 9, 2},
 	}
-	for _, x := range lista {
+	// Dónde se guarda cada tipo de producto en los depósitos.
+	lugar := map[stock.Tipo]string{stock.TipoPlaca: "Rack de placas", stock.TipoCanto: "Estante de cantos",
+		stock.TipoHerraje: "Cajonera de herrajes", stock.TipoOtro: "Estantería"}
+	for i, x := range lista {
 		p, err := d.stock.CrearProducto(d.ctx, d.u, x.p)
 		if err != nil {
 			return fmt.Errorf("%s: %w", x.p.Nombre, err)
@@ -202,6 +205,12 @@ func (d *demo) productos() error {
 					return fmt.Errorf("%s: %w", x.p.Nombre, err)
 				}
 			}
+		}
+		ub := fmt.Sprintf("%s %d", lugar[x.p.Tipo], i%4+1)
+		if err := d.stock.GuardarUbicaciones(d.ctx, d.u, p.ID, []stock.UbicacionNueva{
+			{DepositoID: d.dep1, Ubicacion: ub}, {DepositoID: d.dep2, Ubicacion: ub},
+		}); err != nil {
+			return fmt.Errorf("%s: %w", x.p.Nombre, err)
 		}
 	}
 	return nil
@@ -275,7 +284,16 @@ func (d *demo) ventasDemo() error {
 	if _, err := d.ventas.Confirmar(d.ctx, d.u, v1.ID, d.dep1); err != nil {
 		return err
 	}
-	if _, err := d.ventas.RegistrarPago(d.ctx, d.u, v1.ID, ventas.Pago{Tipo: ventas.PagoPago, Monto: v1.Total, Medio: "efectivo"}); err != nil {
+	pagada, err := d.ventas.RegistrarPago(d.ctx, d.u, v1.ID, ventas.Pago{Tipo: ventas.PagoPago, Monto: v1.Total, Medio: "efectivo"})
+	if err != nil {
+		return err
+	}
+	// Se lleva todo: recién ahí sale del stock.
+	var items []ventas.RetiroItem
+	for _, l := range pagada.Lineas {
+		items = append(items, ventas.RetiroItem{LineaID: l.ID, Tipo: l.Tipo, Cantidad: l.Cantidad})
+	}
+	if _, err := d.ventas.Retirar(d.ctx, d.u, v1.ID, items, "Se lo llevó en el momento"); err != nil {
 		return err
 	}
 	v2, err := d.ventas.CrearPresupuesto(d.ctx, d.u, ventas.Mostrador, ventas.DatosVenta{ClienteID: clientes["Estudio Arquitectura Norte"]},

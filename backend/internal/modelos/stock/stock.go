@@ -264,6 +264,51 @@ func Devolucion(productoID, depositoID int64, cantidad float64, nota string) (Op
 	return Operacion{m, sumar(cantidad)}, nil
 }
 
+// MaxUbicacion es el largo máximo del texto de una ubicación.
+const MaxUbicacion = 60
+
+// NormalizarUbicaciones limpia y controla las ubicaciones de un producto en
+// cada depósito. Una ubicación vacía borra la que había.
+func NormalizarUbicaciones(us []UbicacionNueva) ([]UbicacionNueva, error) {
+	if len(us) == 0 {
+		return nil, ErrValidacion{"ubicaciones", "no hay ubicaciones para guardar"}
+	}
+	if len(us) > 100 {
+		return nil, ErrValidacion{"ubicaciones", "demasiados depósitos"}
+	}
+	vistos := map[int64]bool{}
+	out := make([]UbicacionNueva, 0, len(us))
+	for _, u := range us {
+		if u.DepositoID <= 0 {
+			return nil, ErrValidacion{"deposito_id", "falta el depósito"}
+		}
+		if vistos[u.DepositoID] {
+			return nil, ErrValidacion{"deposito_id", "el depósito está repetido"}
+		}
+		vistos[u.DepositoID] = true
+		u.Ubicacion = strings.Join(strings.Fields(u.Ubicacion), " ")
+		if len([]rune(u.Ubicacion)) > MaxUbicacion {
+			return nil, ErrValidacion{"ubicacion", fmt.Sprintf("la ubicación es muy larga (máximo %d letras)", MaxUbicacion)}
+		}
+		out = append(out, u)
+	}
+	return out, nil
+}
+
+// Faltante dice si no alcanza lo disponible (lo que hay menos lo reservado
+// para otras ventas) para sacar la cantidad pedida. Devuelve el error para
+// mostrar o nil si alcanza.
+func Faltante(nombre string, hay, reservado, cantidad float64) error {
+	if hay-reservado+1e-9 >= cantidad {
+		return nil
+	}
+	if reservado > 1e-9 {
+		return fmt.Errorf("%s: %w: hay %s, de los que %s están reservados para otras ventas pagadas, y se necesitan %s",
+			nombre, ErrStockInsuficiente, formato(hay), formato(reservado), formato(cantidad))
+	}
+	return fmt.Errorf("%s: %w: hay %s y se necesitan %s", nombre, ErrStockInsuficiente, formato(hay), formato(cantidad))
+}
+
 // EstaBajo dice si el stock total está por debajo del mínimo.
 func EstaBajo(total, minimo float64) bool { return minimo > 0 && total < minimo }
 
