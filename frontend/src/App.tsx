@@ -16,6 +16,7 @@ const Venta = lazy(() => import('@/pages/Venta'))
 const FormVenta = lazy(() => import('@/pages/FormVenta'))
 const Presupuestos = lazy(() => import('@/pages/Presupuestos'))
 const FormPresupuesto = lazy(() => import('@/pages/FormPresupuesto'))
+const MuebleDetalle = lazy(() => import('@/pages/MuebleDetalle'))
 const PlanoCortes = lazy(() => import('@/pages/PlanoCortes'))
 const Boleta = lazy(() => import('@/pages/Boleta'))
 const Proximamente = lazy(() => import('@/pages/Proximamente'))
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="/presupuestos" component={Presupuestos} />
           <Route path="/presupuestos/nuevo" component={FormPresupuesto} />
           <Route path="/presupuestos/:id/editar" component={FormPresupuesto} />
+          <Route path="/presupuestos/:id/muebles/:n" component={MuebleDetalle} />
           <Route path="/presupuestos/:id" component={Venta} />
           <Route component={Proximamente} />
         </Switch>

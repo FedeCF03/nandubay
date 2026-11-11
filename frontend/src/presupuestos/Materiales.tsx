@@ -25,8 +25,22 @@ export function ResumenMateriales({ mat }: { mat: Materiales }) {
       <ul className="divide-y text-sm">{hijos}</ul>
     </div>
   )
+  const placas = mat.placas.reduce((t, p) => t + p.cantidad, 0)
+  const canto = mat.cantos.reduce((t, c) => t + c.cantidad, 0)
+  const herrajes = mat.insumos.filter((c) => c.unidad === 'unidad').reduce((t, c) => t + c.cantidad, 0)
+  const total = (valor: string, titulo: string) => (
+    <div className="rounded-md bg-muted/60 px-2 py-1.5">
+      <div className="text-base font-semibold tabular-nums">{valor}</div>
+      <div className="text-[11px] text-muted-foreground">{titulo}</div>
+    </div>
+  )
   return (
     <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-2 text-center" aria-label="Totales">
+        {total(String(placas), placas === 1 ? 'placa entera' : 'placas enteras')}
+        {total(`${fmtNumero(canto)} m`, 'de canto')}
+        {total(fmtNumero(herrajes), 'herrajes')}
+      </div>
       {mat.placas.length > 0 && grupo('Placas', <Layers className="size-3.5" />, mat.placas.map((p) => (
         <Renglon key={p.producto_id} nombre={p.nombre} costo={p.costo}
           detalle={[cuantasPlacas(p.cantidad, p.retazos), `aprovechamiento ${Math.round(p.aprovechamiento)} %`].join(' · ')} />

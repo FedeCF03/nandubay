@@ -26,14 +26,10 @@ type PresupuestoMuebles struct {
 	ErrorMateriales string `json:"error_materiales,omitempty"`
 }
 
-// calcular valida los muebles contra el stock y calcula los materiales, usando
-// los retazos disponibles de todos los depósitos (todavía no se sabe de cuál sale).
+// calcular valida los muebles contra el stock y calcula los materiales. El
+// presupuesto se calcula siempre con placas enteras, sin retazos: los retazos
+// se aprovechan recién al cortar.
 func (s *ServicioVentas) calcular(ctx context.Context, u *acceso.Usuario, ms []muebles.Mueble) (muebles.Materiales, error) {
-	return s.calcularEn(ctx, u, ms, 0)
-}
-
-// calcularEn calcula con los retazos de un depósito (0 = todos).
-func (s *ServicioVentas) calcularEn(ctx context.Context, u *acceso.Usuario, ms []muebles.Mueble, depositoID int64) (muebles.Materiales, error) {
 	usados := muebles.ProductosUsados(ms)
 	productos, err := s.Repo.BuscarProductos(ctx, u.CarpinteriaID, usados)
 	if err != nil {
@@ -42,11 +38,20 @@ func (s *ServicioVentas) calcularEn(ctx context.Context, u *acceso.Usuario, ms [
 	if err := muebles.Validar(ms, productos); err != nil {
 		return muebles.Materiales{}, err
 	}
-	retazos, err := s.Repo.RetazosDisponibles(ctx, u.CarpinteriaID, usados, depositoID)
-	if err != nil {
-		return muebles.Materiales{}, err
+	return muebles.Calcular(ms, productos, KerfMM, nil)
+}
+
+// conPrecios pone a cada mueble con materiales su precio: costo × Recargo. Un
+// mueble sin piezas ni herrajes conserva el precio que se cargó a mano.
+func conPrecios(ms []muebles.Mueble, mat muebles.Materiales) []muebles.Mueble {
+	out := make([]muebles.Mueble, len(ms))
+	copy(out, ms)
+	for i := range out {
+		if i < len(mat.PrecioPorMueble) && mat.PrecioPorMueble[i] > 0 {
+			out[i].Precio = mat.PrecioPorMueble[i]
+		}
 	}
-	return muebles.Calcular(ms, productos, KerfMM, retazos)
+	return out
 }
 
 // CalcularMateriales calcula placas, canto, insumos y costo sin guardar nada,
@@ -60,6 +65,7 @@ func (s *ServicioVentas) CrearPresupuestoMuebles(ctx context.Context, u *acceso.
 	if err != nil {
 		return PresupuestoMuebles{}, err
 	}
+	ms = conPrecios(ms, mat)
 	id, err := s.Repo.CrearVenta(ctx, u.CarpinteriaID, VentaNueva{
 		Tipo: ventas.Muebles, SucursalID: u.SucursalID, VendedorID: u.ID, Datos: limpiarDatos(d),
 		Lineas: ventas.LineasDeMuebles(ms, mat.CostoPorMueble), Despiece: ms,
@@ -76,6 +82,7 @@ func (s *ServicioVentas) EditarPresupuestoMuebles(ctx context.Context, u *acceso
 		return PresupuestoMuebles{}, err
 	}
 	d = limpiarDatos(d)
+	ms = conPrecios(ms, mat)
 	lineas := ventas.LineasDeMuebles(ms, mat.CostoPorMueble)
 	err = s.Repo.Modificar(ctx, u.CarpinteriaID, u.ID, id, func(p ventas.Pedido) (ventas.Cambio, error) {
 		if p.Tipo != ventas.Muebles {
@@ -185,8 +192,7 @@ func (s *ServicioVentas) verPresupuesto(ctx context.Context, u *acceso.Usuario, 
 // canto y los insumos que salen del stock al confirmarlo. En una venta de
 // mostrador no hay nada extra: alcanza con los renglones.
 //
-// Optimiza con los retazos del depósito de salida, y devuelve también el plan,
-// que se guarda con la venta y marca los retazos usados y los sobrantes nuevos.
+// Devuelve también el plan, que se guarda con la venta.
 func (s *ServicioVentas) materialesAConsumir(ctx context.Context, u *acceso.Usuario, id, depositoID int64) ([]ventas.Consumo, *muebles.Materiales, error) {
 	v, err := s.VerVenta(ctx, u, id)
 	if err != nil || v.Tipo != ventas.Muebles {
@@ -205,7 +211,7 @@ func (s *ServicioVentas) materialesAConsumir(ctx context.Context, u *acceso.Usua
 	if !conDespiece {
 		return nil, nil, nil
 	}
-	mat, err := s.calcularEn(ctx, u, ms, depositoID)
+	mat, err := s.calcular(ctx, u, ms)
 	if err != nil {
 		return nil, nil, err
 	}

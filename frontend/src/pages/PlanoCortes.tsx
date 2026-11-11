@@ -1,12 +1,12 @@
 import { useEffect, useMemo } from 'react'
-import { Link, useRoute } from 'wouter'
+import { Link, useRoute, useSearch } from 'wouter'
 import { ArrowLeft, Loader2, Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PlacaSVG } from '@/cortes/PlacaSVG'
 import type { Cantos, Pieza } from '@/cortes/tipos'
 import { fmtNumero, unidadCorta, useProductos } from '@/stock/api'
 import { fmtDia, medidas, numeroVenta } from '@/ventas/api'
-import { cuantasPlacas, tieneCanto, usePresupuesto, type PresupuestoMuebles } from '@/presupuestos/api'
+import { cuantasPlacas, tieneCanto, useMateriales, usePresupuesto, type PresupuestoMuebles } from '@/presupuestos/api'
 
 const lados = (c: Cantos) => (['l1', 'l2', 'a1', 'a2'] as const).filter((k) => c[k]).map((k) => k.toUpperCase()).join(' ')
 
@@ -17,30 +17,42 @@ export default function PlanoCortes() {
   const [, params] = useRoute('/presupuestos/:id/cortes')
   const id = Number(params?.id)
   const p = usePresupuesto(id)
+  // ?mueble=N: la hoja de cortes de un solo mueble, calculada aparte.
+  const n = Number(new URLSearchParams(useSearch()).get('mueble')) || 0
+  const mueble = n ? p.data?.muebles[n - 1] : undefined
+  const solo = useMemo(() => (mueble ? [mueble] : null), [mueble])
+  const matMueble = useMateriales(solo)
+  const datos: PresupuestoMuebles | undefined = useMemo(() => {
+    if (!p.data || !n) return p.data
+    if (!mueble || !matMueble.data) return undefined
+    return { ...p.data, muebles: [mueble], materiales: matMueble.data }
+  }, [p.data, n, mueble, matMueble.data])
 
   useEffect(() => {
     if (p.data) document.title = `Cortes ${numeroVenta(p.data.venta.numero)}`
     return () => { document.title = 'Ñandubay' }
   }, [p.data])
 
-  if (p.isPending) {
+  if (n && p.data && !mueble) return <p className="p-6 text-destructive">Ese mueble no está en el presupuesto.</p>
+  if (matMueble.isError) return <p className="p-6 text-destructive">{matMueble.error.message}</p>
+  if (p.isPending || !datos) {
     return <div className="flex min-h-svh items-center justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
   }
   if (p.isError) return <p className="p-6 text-destructive">{p.error.message}</p>
   return (
     <div className="min-h-svh bg-muted/60 print:bg-white">
       <div className="no-imprimir sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-background/95 px-4 py-2 backdrop-blur">
-        <Button variant="ghost" asChild><Link href={`/presupuestos/${id}`}><ArrowLeft /> Volver</Link></Button>
+        <Button variant="ghost" asChild><Link href={n ? `/presupuestos/${id}/muebles/${n}` : `/presupuestos/${id}`}><ArrowLeft /> Volver</Link></Button>
         <Button onClick={() => window.print()}><Printer /> Imprimir</Button>
       </div>
       <div className="space-y-6 overflow-x-auto py-6 print:space-y-0 print:overflow-visible print:py-0">
-        <Hojas p={p.data} />
+        <Hojas p={datos} soloMueble={Boolean(n)} />
       </div>
     </div>
   )
 }
 
-function Hojas({ p }: { p: PresupuestoMuebles }) {
+function Hojas({ p, soloMueble }: { p: PresupuestoMuebles; soloMueble?: boolean }) {
   const productos = useProductos({ tipo: '', buscar: '' }).data ?? []
   const nombre = new Map(productos.map((x) => [x.id, x]))
   const { venta: v, muebles, materiales: mat } = p
@@ -50,7 +62,7 @@ function Hojas({ p }: { p: PresupuestoMuebles }) {
     cantidad: pz.cantidad * m.cantidad, respeta_veta: pz.respeta_veta, cantos: pz.cantos,
   }))), [muebles])
   const porId = new Map(piezas.map((x) => [x.id, x]))
-  const titulo = `Presupuesto N° ${numeroVenta(v.numero)} · ${v.cliente.nombre}`
+  const titulo = `Presupuesto N° ${numeroVenta(v.numero)} · ${v.cliente.nombre}${soloMueble ? ` · ${muebles[0].nombre}` : ''}`
 
   return (
     <>

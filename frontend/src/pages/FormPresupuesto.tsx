@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useParams } from 'wouter'
-import { ArrowLeft, Copy, Loader2, Package, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowLeft, Copy, Loader2, Package, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -10,14 +10,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { SelectorCantos } from '@/cortes/SelectorCantos'
 import type { Cantos } from '@/cortes/tipos'
-import { useGuardado } from '@/hooks/use-guardado'
 import { cn } from '@/lib/utils'
 import { fmtPesos, unidadCorta, useProductos, type ProductoConStock } from '@/stock/api'
 import { BuscarProducto } from '@/ventas/BuscarProducto'
 import { SelectorCliente } from '@/ventas/SelectorCliente'
 import { type Cliente } from '@/ventas/api'
 import {
-  sinCantos, tieneCanto, useGuardarPresupuesto, useMateriales, usePresupuesto,
+  RECARGO, sinCantos, tieneCanto, useGuardarPresupuesto, useMateriales, usePresupuesto,
   type Mueble, type PresupuestoMuebles,
 } from '@/presupuestos/api'
 import { ResumenMateriales } from '@/presupuestos/Materiales'
@@ -96,9 +95,6 @@ function aMuebles(ms: MuebleForm[], precio: (m: MuebleForm, i: number) => number
   }))
 }
 
-// Redondea el precio sugerido a la centena.
-const redondearPrecio = (n: number) => Math.ceil(n / 100) * 100
-
 export default function FormPresupuesto() {
   const params = useParams<{ id?: string }>()
   const id = params.id ? Number(params.id) : 0
@@ -122,7 +118,6 @@ function Formulario({ presupuesto, productos }: { presupuesto?: PresupuestoMuebl
     presupuesto ? desdePresupuesto(presupuesto, porId) : [muebleVacio()])
   const [notas, setNotas] = useState(venta?.notas ?? '')
   const [entrega, setEntrega] = useState(venta?.fecha_entrega ?? '')
-  const [margen, setMargen] = useGuardado('nandubay.presupuestos.margen', 60)
   const [buscandoPara, setBuscandoPara] = useState<number | null>(null)
   const [error, setError] = useState('')
 
@@ -139,11 +134,11 @@ function Formulario({ presupuesto, productos }: { presupuesto?: PresupuestoMuebl
   const materiales = useMateriales(hayPiezas ? demorado : null)
   const mat = hayPiezas ? materiales.data : undefined
 
-  const sugerido = (i: number) => {
-    const c = mat?.costo_por_mueble[i]
-    return c ? redondearPrecio(c * (1 + margen / 100)) : 0
-  }
-  const precioDe = (m: MuebleForm, i: number) => (m.precio.trim() ? decimal(m.precio) : sugerido(i))
+  // El precio es siempre el costo × RECARGO (lo calcula el backend). Solo un
+  // mueble sin piezas ni herrajes lleva precio a mano.
+  const sinMateriales = (m: MuebleForm) => m.piezas.length === 0 && m.insumos.length === 0
+  const calculado = (i: number) => mat?.precio_por_mueble?.[i] ?? 0
+  const precioDe = (m: MuebleForm, i: number) => (sinMateriales(m) ? decimal(m.precio) : calculado(i))
   const total = muebles.reduce((t, m, i) => t + precioDe(m, i) * Math.max(1, entero(m.cantidad)), 0)
 
   const cambiarMueble = (clave: number, f: (m: MuebleForm) => MuebleForm) =>
@@ -187,7 +182,7 @@ function Formulario({ presupuesto, productos }: { presupuesto?: PresupuestoMuebl
   const enviar = () => {
     if (!cliente) return setError('Elegí el cliente.')
     if (muebles.length === 0) return setError('Agregá al menos un mueble.')
-    const sinPrecio = muebles.findIndex((m, i) => precioDe(m, i) <= 0)
+    const sinPrecio = muebles.findIndex((m, i) => sinMateriales(m) && precioDe(m, i) <= 0)
     if (sinPrecio >= 0) return setError(`Poné el precio de ${muebles[sinPrecio].nombre || `el mueble ${sinPrecio + 1}`}.`)
     guardar.mutate({
       id: venta?.id,
@@ -238,9 +233,13 @@ function Formulario({ presupuesto, productos }: { presupuesto?: PresupuestoMuebl
                   </label>
                   <label className="grid gap-1.5 text-sm font-medium">
                     Precio unitario
-                    <Input value={m.precio} inputMode="decimal" className="text-right"
-                      placeholder={sugerido(i) ? fmtPesos(sugerido(i)) : ''} aria-label={`Precio del mueble ${i + 1}`}
-                      onChange={(e) => cambiarMueble(m.clave, (x) => ({ ...x, precio: e.target.value }))} />
+                    {sinMateriales(m) ? (
+                      <Input value={m.precio} inputMode="decimal" className="text-right" aria-label={`Precio del mueble ${i + 1}`}
+                        onChange={(e) => cambiarMueble(m.clave, (x) => ({ ...x, precio: e.target.value }))} />
+                    ) : (
+                      <Input value={calculado(i) ? fmtPesos(calculado(i)) : '…'} readOnly tabIndex={-1} aria-label={`Precio del mueble ${i + 1}`}
+                        title="Costo de materiales × 1,7" className="bg-muted text-right" />
+                    )}
                   </label>
                 </div>
                 <div className="grid grid-cols-3 gap-2 sm:max-w-md">
@@ -388,22 +387,9 @@ function Formulario({ presupuesto, productos }: { presupuesto?: PresupuestoMuebl
               ) : (
                 <Skeleton className="h-32" />
               )}
-              <div className="grid gap-2 border-t pt-3">
-                <label className="flex items-center justify-between gap-2 text-sm">
-                  Margen sobre el costo
-                  <span className="flex items-center gap-1">
-                    <Input value={String(margen)} inputMode="numeric" className="h-8 w-16 text-right" aria-label="Margen en porcentaje"
-                      onChange={(e) => setMargen(entero(e.target.value))} /> %
-                  </span>
-                </label>
-                {mat && muebles.some((m) => m.precio.trim()) && (
-                  <Button type="button" variant="outline" size="sm"
-                    onClick={() => setMuebles((ms) => ms.map((m) => ({ ...m, precio: '' })))}>
-                    <Sparkles /> Usar precios sugeridos
-                  </Button>
-                )}
-                <p className="text-xs text-muted-foreground">Si dejás el precio de un mueble vacío se usa el sugerido: costo + margen.</p>
-              </div>
+              <p className="border-t pt-3 text-xs text-muted-foreground">
+                Precio de cada mueble: costo de materiales × {String(RECARGO).replace('.', ',')}, con las placas enteras.
+              </p>
               <div className="flex items-center justify-between border-t pt-3 text-lg">
                 <span className="text-muted-foreground">Total</span>
                 <span className="font-semibold tabular-nums">{fmtPesos(total)}</span>

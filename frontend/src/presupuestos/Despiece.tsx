@@ -1,3 +1,6 @@
+import { Link } from 'wouter'
+import { ChevronRight } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -23,6 +26,14 @@ export function DespieceVenta({ id }: { id: number }) {
   const nombre = new Map((productos.data ?? []).map((x) => [x.id, x]))
   const hayDespiece = muebles.some((m) => m.piezas.length > 0 || m.insumos.length > 0)
   if (muebles.length === 0) return null
+  // usoDe resume el canto y los herrajes de una unidad del mueble.
+  const usoDe = (i: number) => {
+    const m = muebles[i]
+    const canto = materiales?.canto_por_mueble?.[i] ?? 0
+    const herrajes = m.insumos.filter((x) => nombre.get(x.producto_id)?.unidad === 'unidad').reduce((t, x) => t + x.cantidad, 0)
+    return [canto > 0 && `${fmtNumero(canto)} m de canto`, herrajes > 0 && `${fmtNumero(herrajes)} herrajes`]
+      .filter(Boolean).join(' · ') + (m.cantidad > 1 && (canto || herrajes) ? ' por mueble' : '')
+  }
 
   return (
     <div className="space-y-5">
@@ -30,9 +41,20 @@ export function DespieceVenta({ id }: { id: number }) {
         <div className="min-w-0 space-y-5">
           {muebles.map((m, i) => (
             <Card key={i} className="min-w-0 gap-3">
-              <CardHeader>
-                <CardTitle>{m.cantidad > 1 && `${m.cantidad} × `}{m.nombre}</CardTitle>
-                <p className="text-sm text-muted-foreground">{medidas(m) || 'Sin medidas generales'}</p>
+              <CardHeader className="flex flex-row items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <CardTitle>
+                    <Link href={`/presupuestos/${id}/muebles/${i + 1}`} className="hover:underline">
+                      {m.cantidad > 1 && `${m.cantidad} × `}{m.nombre}
+                    </Link>
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    {[medidas(m) || 'Sin medidas generales', usoDe(i)].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/presupuestos/${id}/muebles/${i + 1}`}>Abrir <ChevronRight /></Link>
+                </Button>
               </CardHeader>
               <CardContent className="space-y-4">
                 {m.piezas.length > 0 && (
