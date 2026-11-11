@@ -10,6 +10,7 @@ const Login = lazy(() => import('@/auth/Login'))
 const Inicio = lazy(() => import('@/pages/Inicio'))
 const Cortes = lazy(() => import('@/pages/Cortes'))
 const Stock = lazy(() => import('@/pages/Stock'))
+const Categorias = lazy(() => import('@/pages/Categorias'))
 const Ventas = lazy(() => import('@/pages/Ventas'))
 const Venta = lazy(() => import('@/pages/Venta'))
 const FormVenta = lazy(() => import('@/pages/FormVenta'))
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="/" component={Inicio} />
           <Route path="/cortes" component={Cortes} />
           <Route path="/stock" component={Stock} />
+          <Route path="/categorias" component={Categorias} />
           <Route path="/ventas" component={Ventas} />
           <Route path="/ventas/nueva" component={FormVenta} />
           <Route path="/ventas/:id/editar" component={FormVenta} />

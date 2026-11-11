@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getJSON, postJSON, putJSON } from '@/api/cliente'
+import { delJSON, getJSON, postJSON, putJSON } from '@/api/cliente'
 
 export type TipoProducto = 'placa' | 'canto' | 'herraje' | 'otro'
 
@@ -22,6 +22,15 @@ export interface Producto {
   canto_ancho_mm?: number
   canto_espesor_mm?: number
   activo: boolean
+  categoria_id: number | null
+  categoria?: string
+}
+
+export interface Categoria {
+  id: number
+  nombre: string
+  descripcion: string
+  productos: number
 }
 
 export interface ProductoConStock extends Producto {
@@ -45,7 +54,8 @@ export interface Movimiento {
   fecha: string
 }
 
-export interface Filtro { tipo: string; buscar: string }
+// categoria: id de la categoría, 'sin' para los productos sin categoría, o vacío para todas.
+export interface Filtro { tipo: string; buscar: string; categoria?: string }
 
 const CLAVE = ['stock']
 
@@ -53,6 +63,7 @@ export function useProductos(f: Filtro, enabled = true) {
   const q = new URLSearchParams()
   if (f.tipo) q.set('tipo', f.tipo)
   if (f.buscar.trim()) q.set('buscar', f.buscar.trim())
+  if (f.categoria) q.set('categoria', f.categoria)
   return useQuery({
     queryKey: [...CLAVE, 'productos', f],
     queryFn: () => getJSON<ProductoConStock[]>(`/api/v1/productos?${q}`),
@@ -82,6 +93,32 @@ export function useGuardarProducto() {
   return useMutation({
     mutationFn: (p: Partial<Producto>) =>
       p.id ? putJSON<Producto>(`/api/v1/productos/${p.id}`, p) : postJSON<Producto>('/api/v1/productos', p),
+    onSuccess: () => qc.invalidateQueries({ queryKey: CLAVE }),
+  })
+}
+
+export function useCategorias() {
+  return useQuery({
+    queryKey: [...CLAVE, 'categorias'],
+    queryFn: () => getJSON<Categoria[]>('/api/v1/categorias'),
+    staleTime: 60 * 1000,
+  })
+}
+
+export function useGuardarCategoria() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (c: Partial<Categoria>) =>
+      c.id ? putJSON<Categoria>(`/api/v1/categorias/${c.id}`, c) : postJSON<Categoria>('/api/v1/categorias', c),
+    // Renombrar cambia el nombre que muestran los productos.
+    onSuccess: () => qc.invalidateQueries({ queryKey: CLAVE }),
+  })
+}
+
+export function useBorrarCategoria() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => delJSON<void>(`/api/v1/categorias/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: CLAVE }),
   })
 }

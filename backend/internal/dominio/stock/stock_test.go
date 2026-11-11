@@ -2,6 +2,7 @@ package stock
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -63,5 +64,34 @@ func TestTraspaso(t *testing.T) {
 func TestStockBajo(t *testing.T) {
 	if !EstaBajo(2, 5) || EstaBajo(5, 5) || EstaBajo(0, 0) {
 		t.Fatal("regla de stock bajo incorrecta")
+	}
+}
+
+func TestCategoria(t *testing.T) {
+	c := Categoria{Nombre: "  Bisagras   y  guías ", Descripcion: " herrajes de puertas "}
+	c.Normalizar()
+	if c.Nombre != "Bisagras y guías" || c.Descripcion != "herrajes de puertas" {
+		t.Fatalf("normalización incorrecta: %+v", c)
+	}
+	if err := c.Validar(); err != nil {
+		t.Fatal(err)
+	}
+	vacia := Categoria{Nombre: "   "}
+	vacia.Normalizar()
+	if err := vacia.Validar(); err == nil {
+		t.Fatal("una categoría sin nombre no es válida")
+	}
+	larga := Categoria{Nombre: "ñ" + strings.Repeat("a", 60)}
+	if err := larga.Validar(); err == nil {
+		t.Fatal("nombre de 61 letras no es válido")
+	}
+}
+
+func TestNormalizarCategoriaDelProducto(t *testing.T) {
+	cero := int64(0)
+	p := Producto{Tipo: TipoHerraje, Nombre: "Bisagra", CategoriaID: &cero, Categoria: "inventada"}
+	p.Normalizar()
+	if p.CategoriaID != nil || p.Categoria != "" {
+		t.Fatalf("categoría 0 tiene que quedar vacía: %+v", p)
 	}
 }

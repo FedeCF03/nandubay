@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useSearch } from 'wouter'
 import {
   AlertTriangle, ArrowLeftRight, History, MoreHorizontal, PackagePlus, Pencil, Plus, Scale, Search,
 } from 'lucide-react'
@@ -9,13 +10,14 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { usePermiso } from '@/auth/sesion'
 import { cn } from '@/lib/utils'
 import {
-  detalle, fmtNumero, fmtPesos, nombreTipo, unidadCorta, useDepositos, useProductos,
+  detalle, fmtNumero, fmtPesos, nombreTipo, unidadCorta, useCategorias, useDepositos, useProductos,
   type Producto, type ProductoConStock, type TipoOperacion,
 } from '@/stock/api'
 import { DialogoOperacion } from '@/stock/DialogoOperacion'
@@ -31,9 +33,13 @@ type Accion =
 export default function Stock() {
   const [tipo, setTipo] = useState('')
   const [buscar, setBuscar] = useState('')
+  // Desde la pantalla de categorías se llega con ?categoria=<id>.
+  const search = useSearch()
+  const [categoria, setCategoria] = useState(() => new URLSearchParams(search).get('categoria') ?? '')
+  const categorias = useCategorias().data ?? []
   const [soloBajo, setSoloBajo] = useState(false)
   const [accion, setAccion] = useState<Accion | null>(null)
-  const productos = useProductos({ tipo: tipo === 'retazos' ? 'placa' : tipo, buscar })
+  const productos = useProductos({ tipo: tipo === 'retazos' ? 'placa' : tipo, buscar, categoria })
   const depositos = useDepositos().data ?? []
   const editaProductos = usePermiso('productos.editar')
   const editaStock = usePermiso('stock.editar')
@@ -113,6 +119,16 @@ export default function Stock() {
         </Tabs>
         </div>
         {tipo !== 'retazos' && <>
+        {(categorias.length > 0 || categoria) && (
+          <Select value={categoria || 'todas'} onValueChange={(v) => setCategoria(v === 'todas' ? '' : v)}>
+            <SelectTrigger className="w-full md:w-48" aria-label="Categoría"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas las categorías</SelectItem>
+              {categorias.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.nombre}</SelectItem>)}
+              <SelectItem value="sin">Sin categoría</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-8" placeholder="Buscar por nombre, código, color o marca" value={buscar}
@@ -132,8 +148,8 @@ export default function Stock() {
       ) : lista.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed py-16 text-center">
           <PackagePlus className="size-10 text-muted-foreground" />
-          <p className="font-medium">{buscar || tipo || soloBajo ? 'No hay productos que coincidan.' : 'Todavía no cargaste productos.'}</p>
-          {editaProductos && !buscar && !tipo && (
+          <p className="font-medium">{buscar || tipo || soloBajo || categoria ? 'No hay productos que coincidan.' : 'Todavía no cargaste productos.'}</p>
+          {editaProductos && !buscar && !tipo && !categoria && (
             <Button variant="outline" onClick={() => setAccion({ tipo: 'producto', producto: null })}>
               <Plus /> Cargar el primero
             </Button>
@@ -163,6 +179,7 @@ export default function Stock() {
                       <div className="flex items-center gap-2 font-medium">
                         {p.nombre}
                         {!tipo && <Badge variant="secondary" className="font-normal">{nombreTipo[p.tipo]}</Badge>}
+                        {p.categoria && !categoria && <Badge variant="outline" className="font-normal">{p.categoria}</Badge>}
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {[p.sku, detalle(p)].filter(Boolean).join(' · ')}
@@ -194,6 +211,7 @@ export default function Stock() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="font-medium">{p.nombre}</div>
+                    {p.categoria && <div className="text-xs text-primary">{p.categoria}</div>}
                     <div className="truncate text-xs text-muted-foreground">{[p.sku, detalle(p)].filter(Boolean).join(' · ')}</div>
                   </div>
                   {acciones(p)}
