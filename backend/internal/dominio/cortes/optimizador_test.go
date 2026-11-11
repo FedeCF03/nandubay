@@ -157,3 +157,25 @@ func TestNombreOpcional(t *testing.T) {
 		t.Errorf("no colocadas = %+v", res.NoColocadas)
 	}
 }
+
+func TestRetazosAntesQueLaPlacaAbierta(t *testing.T) {
+	// La pieza grande obliga a abrir una placa, pero las chicas van a los retazos.
+	res, err := Optimizar(Parametros{PlacaLargo: 2600, PlacaAncho: 1830, Kerf: 3,
+		Retazos: []Retazo{{ID: "7", Largo: 900, Ancho: 450}, {ID: "8", Largo: 1200, Ancho: 600}}},
+		[]Pieza{
+			{ID: "a", Etiqueta: "Lateral", Largo: 1800, Ancho: 300, Cantidad: 2},
+			{ID: "b", Etiqueta: "Estante", Largo: 764, Ancho: 280, Cantidad: 2},
+			{ID: "c", Etiqueta: "Techo", Largo: 800, Ancho: 300, Cantidad: 1},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.PlacasEnteras != 1 || res.RetazosUsados != 2 {
+		t.Fatalf("enteras %d, retazos %d", res.PlacasEnteras, res.RetazosUsados)
+	}
+	for _, pl := range res.Placas {
+		if pl.RetazoID == "" && len(pl.Piezas) != 2 {
+			t.Errorf("en la placa entera tenían que quedar solo los laterales: %+v", pl.Piezas)
+		}
+	}
+}

@@ -2,6 +2,8 @@ package aplicacion
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
@@ -94,4 +96,43 @@ func (s *ServicioStock) registrar(ctx context.Context, u *acceso.Usuario, produc
 		return stock.ErrValidacion{Campo: "producto", Mensaje: "el producto está dado de baja"}
 	}
 	return s.Repo.RegistrarOperaciones(ctx, u.CarpinteriaID, u.ID, ops)
+}
+
+func (s *ServicioStock) ListarRetazos(ctx context.Context, u *acceso.Usuario, f FiltroRetazos) ([]RetazoStock, error) {
+	return s.Repo.ListarRetazos(ctx, u.CarpinteriaID, f)
+}
+
+// CrearRetazo guarda un retazo cargado a mano: tiene que ser de una placa y
+// no puede ser más grande que la placa entera.
+func (s *ServicioStock) CrearRetazo(ctx context.Context, u *acceso.Usuario, r RetazoStock) (RetazoStock, error) {
+	p, err := s.Repo.BuscarProducto(ctx, u.CarpinteriaID, r.PlacaID)
+	if err != nil {
+		return RetazoStock{}, err
+	}
+	if p.Tipo != stock.TipoPlaca {
+		return RetazoStock{}, stock.ErrValidacion{Campo: "placa_id", Mensaje: "elegí una placa"}
+	}
+	if r.Largo <= 0 || r.Ancho <= 0 {
+		return RetazoStock{}, stock.ErrValidacion{Campo: "largo", Mensaje: "poné el largo y el ancho del retazo"}
+	}
+	if r.Largo > p.LargoMM || r.Ancho > p.AnchoMM {
+		return RetazoStock{}, stock.ErrValidacion{Campo: "largo",
+			Mensaje: fmt.Sprintf("el retazo no puede ser más grande que la placa (%d × %d mm); el largo va en el sentido de la veta", p.LargoMM, p.AnchoMM)}
+	}
+	r.Nota = strings.TrimSpace(r.Nota)
+	id, err := s.Repo.CrearRetazo(ctx, u.CarpinteriaID, r)
+	if err != nil {
+		return RetazoStock{}, err
+	}
+	rs, err := s.Repo.ListarRetazos(ctx, u.CarpinteriaID, FiltroRetazos{PlacaID: r.PlacaID, DepositoID: r.DepositoID})
+	for _, x := range rs {
+		if x.ID == id {
+			return x, nil
+		}
+	}
+	return RetazoStock{ID: id}, err
+}
+
+func (s *ServicioStock) DescartarRetazo(ctx context.Context, u *acceso.Usuario, id int64) error {
+	return s.Repo.DescartarRetazo(ctx, u.CarpinteriaID, id)
 }

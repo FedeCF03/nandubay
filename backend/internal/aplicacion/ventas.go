@@ -144,11 +144,15 @@ func (s *ServicioVentas) EditarPresupuesto(ctx context.Context, u *acceso.Usuari
 }
 
 func (s *ServicioVentas) Confirmar(ctx context.Context, u *acceso.Usuario, id, depositoID int64) (VentaVista, error) {
-	materiales, err := s.materialesAConsumir(ctx, u, id)
+	consumos, plan, err := s.materialesAConsumir(ctx, u, id, depositoID)
 	if err != nil {
 		return VentaVista{}, err
 	}
-	return s.modificar(ctx, u, id, func(p ventas.Pedido) (ventas.Cambio, error) { return p.Confirmar(depositoID, materiales) })
+	return s.modificar(ctx, u, id, func(p ventas.Pedido) (ventas.Cambio, error) {
+		c, err := p.Confirmar(depositoID, consumos)
+		c.Materiales = plan
+		return c, err
+	})
 }
 
 func (s *ServicioVentas) RegistrarPago(ctx context.Context, u *acceso.Usuario, id int64, pago ventas.Pago) (VentaVista, error) {

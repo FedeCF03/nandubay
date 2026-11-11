@@ -154,11 +154,22 @@ func Optimizar(p Parametros, piezas []Pieza) (Resultado, error) {
 	var res Resultado
 	placas := []*PlacaUsada{}
 
+	// Los retazos se llenan primero: así se aprovechan aunque la pieza también
+	// entre en una placa entera ya abierta, y la placa queda con sobrantes más grandes.
+	abiertas := func(retazo bool) []*PlacaUsada {
+		var out []*PlacaUsada
+		for _, pl := range placas {
+			if (pl.RetazoID != "") == retazo {
+				out = append(out, pl)
+			}
+		}
+		return out
+	}
 	for _, u := range unidades {
-		if colocarEnAbiertas(placas, u, p.Kerf) {
+		if colocarEnAbiertas(abiertas(true), u, p.Kerf) {
 			continue
 		}
-		// Abrir un retazo que la pieza quepa, o una placa entera.
+		// Abrir un retazo en el que la pieza quepa.
 		var nueva *PlacaUsada
 		for i, r := range retazos {
 			if retazoUsado[i] {
@@ -173,6 +184,9 @@ func Optimizar(p Parametros, piezas []Pieza) (Resultado, error) {
 				res.RetazosUsados++
 				break
 			}
+		}
+		if nueva == nil && colocarEnAbiertas(abiertas(false), u, p.Kerf) {
+			continue
 		}
 		if nueva == nil {
 			util := Rect{p.Refilado, p.Refilado, p.PlacaLargo - 2*p.Refilado, p.PlacaAncho - 2*p.Refilado}

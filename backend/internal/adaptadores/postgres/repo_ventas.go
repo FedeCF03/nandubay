@@ -592,6 +592,16 @@ func (r *RepoVentas) Modificar(ctx context.Context, carpinteriaID, usuarioID, id
 		if err := aplicarOperaciones(ctx, tx, carpinteriaID, usuarioID, &id, c.Operaciones); err != nil {
 			return err
 		}
+		if c.Materiales != nil && c.DepositoID != nil {
+			if err := usarRetazos(ctx, tx, carpinteriaID, id, *c.DepositoID, c.Materiales); err != nil {
+				return err
+			}
+		}
+		if c.Estado != nil && *c.Estado == ventas.Cancelado {
+			if err := devolverRetazos(ctx, tx, id); err != nil {
+				return err
+			}
+		}
 		if g := c.Pago; g != nil {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO pagos (carpinteria_id, pedido_id, tipo, monto, medio, usuario_id, nota)

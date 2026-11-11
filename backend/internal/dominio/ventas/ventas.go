@@ -373,6 +373,9 @@ type Cambio struct {
 	// Despiece acompaña a Lineas en un presupuesto de muebles: piezas e
 	// insumos de cada mueble, en el mismo orden que las líneas.
 	Despiece []muebles.Mueble
+	// Materiales es el plan con que se confirma un presupuesto de muebles:
+	// se guarda y marca los retazos usados y los sobrantes nuevos.
+	Materiales *muebles.Materiales
 }
 
 // DatosVenta son los datos generales que se editan mientras es presupuesto.

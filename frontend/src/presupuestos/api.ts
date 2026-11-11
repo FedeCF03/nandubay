@@ -32,7 +32,8 @@ export interface Mueble {
 export interface PlacaCalculada {
   producto_id: number
   nombre: string
-  cantidad: number
+  cantidad: number // placas enteras
+  retazos: number // retazos usados (no se cobran)
   aprovechamiento: number
   costo_unitario: number
   costo: number
@@ -148,3 +149,11 @@ export function useMateriales(muebles: Mueble[] | null) {
 
 export const sinCantos = (): Cantos => ({ l1: false, l2: false, a1: false, a2: false })
 export const tieneCanto = (c: Cantos) => c.l1 || c.l2 || c.a1 || c.a2
+
+// cuantasPlacas dice "2 placas + 1 retazo".
+export function cuantasPlacas(placas: number, retazos = 0) {
+  const t = []
+  if (placas || !retazos) t.push(`${placas} ${placas === 1 ? 'placa' : 'placas'}`)
+  if (retazos) t.push(`${retazos} ${retazos === 1 ? 'retazo' : 'retazos'}`)
+  return t.join(' + ')
+}

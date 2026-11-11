@@ -58,6 +58,12 @@ type Mueble struct {
 
 var esUUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
+// Medida mínima de un sobrante para guardarlo como retazo.
+const (
+	SobranteMinLargo = 300
+	SobranteMinAncho = 150
+)
+
 // MermaCantoMM es lo que se suma en cada tramo de canto al pegarlo.
 const MermaCantoMM = 30
 
@@ -155,7 +161,8 @@ func entra(largo, ancho int, respetaVeta bool, placa stock.Producto) bool {
 type PlacaCalculada struct {
 	ProductoID      int64            `json:"producto_id"`
 	Nombre          string           `json:"nombre"`
-	Cantidad        int              `json:"cantidad"`
+	Cantidad        int              `json:"cantidad"` // placas enteras
+	Retazos         int              `json:"retazos"`  // retazos usados
 	Aprovechamiento float64          `json:"aprovechamiento"`
 	CostoUnitario   float64          `json:"costo_unitario"`
 	Costo           float64          `json:"costo"`
@@ -187,7 +194,10 @@ func redondear(x float64) float64 { return math.Round(x*100) / 100 }
 
 // Calcular optimiza las piezas de todos los muebles juntas, una vez por
 // cada placa, y suma cantos e insumos. Los muebles tienen que estar validados.
-func Calcular(ms []Mueble, productos map[int64]stock.Producto, kerf int) (Materiales, error) {
+//
+// retazos son los sobrantes disponibles de cada placa: se usan antes que las
+// placas enteras y no se cobran (ya se pagaron con la placa de la que salieron).
+func Calcular(ms []Mueble, productos map[int64]stock.Producto, kerf int, retazos map[int64][]cortes.Retazo) (Materiales, error) {
 	out := Materiales{Placas: []PlacaCalculada{}, Cantos: []MaterialCalculado{}, Insumos: []MaterialCalculado{}, CostoPorMueble: make([]float64, len(ms))}
 
 	// Piezas por placa, con la cantidad multiplicada por la de muebles.
@@ -234,7 +244,8 @@ func Calcular(ms []Mueble, productos map[int64]stock.Producto, kerf int) (Materi
 		pr := productos[id]
 		res, err := cortes.Optimizar(cortes.Parametros{
 			PlacaLargo: pr.LargoMM, PlacaAncho: pr.AnchoMM, TieneVeta: pr.TieneVeta,
-			Kerf: kerf, Refilado: pr.RefiladoMM, SobranteMinLargo: 300, SobranteMinAncho: 150,
+			Kerf: kerf, Refilado: pr.RefiladoMM, SobranteMinLargo: SobranteMinLargo, SobranteMinAncho: SobranteMinAncho,
+			Retazos: retazos[id],
 		}, porPlaca[id])
 		if err != nil {
 			return out, fmt.Errorf("%s: %w", pr.Nombre, err)
@@ -243,7 +254,7 @@ func Calcular(ms []Mueble, productos map[int64]stock.Producto, kerf int) (Materi
 			return out, ErrValidacion{"piezas", fmt.Sprintf("%s: hay piezas que no entran en la placa", pr.Nombre)}
 		}
 		pc := PlacaCalculada{
-			ProductoID: id, Nombre: pr.Nombre, Cantidad: res.PlacasEnteras, Aprovechamiento: res.Aprovechamiento,
+			ProductoID: id, Nombre: pr.Nombre, Cantidad: res.PlacasEnteras, Retazos: res.RetazosUsados, Aprovechamiento: res.Aprovechamiento,
 			CostoUnitario: pr.Costo, Costo: redondear(float64(res.PlacasEnteras) * pr.Costo), Plan: res,
 		}
 		out.Placas = append(out.Placas, pc)

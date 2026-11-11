@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
+	"github.com/FedeCF03/nandubay/backend/internal/dominio/cortes"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
 	"github.com/FedeCF03/nandubay/backend/internal/dominio/ventas"
@@ -123,6 +124,33 @@ type RepositorioStock interface {
 	// con cada saldo bloqueado mientras se calcula el nuevo. Si una falla, no se aplica ninguna.
 	RegistrarOperaciones(ctx context.Context, carpinteriaID, usuarioID int64, ops []stock.Operacion) error
 	ListarMovimientos(ctx context.Context, carpinteriaID, productoID int64, limite int) ([]MovimientoRegistrado, error)
+
+	ListarRetazos(ctx context.Context, carpinteriaID int64, f FiltroRetazos) ([]RetazoStock, error)
+	CrearRetazo(ctx context.Context, carpinteriaID int64, r RetazoStock) (int64, error)
+	// DescartarRetazo saca de los disponibles un retazo que se tiró o se usó
+	// fuera del sistema. Devuelve stock.ErrNoEncontrado si no está disponible.
+	DescartarRetazo(ctx context.Context, carpinteriaID, id int64) error
+}
+
+// FiltroRetazos para listar retazos disponibles.
+type FiltroRetazos struct {
+	PlacaID    int64 // 0 = todas
+	DepositoID int64 // 0 = todos
+}
+
+// RetazoStock es un sobrante de placa guardado en un depósito.
+type RetazoStock struct {
+	ID         int64     `json:"id"`
+	PlacaID    int64     `json:"placa_id"`
+	Placa      string    `json:"placa"`
+	DepositoID int64     `json:"deposito_id"`
+	Deposito   string    `json:"deposito"`
+	Largo      int       `json:"largo"`
+	Ancho      int       `json:"ancho"`
+	Nota       string    `json:"nota"`
+	// Origen dice de dónde salió: "Venta N° 12" o vacío si se cargó a mano.
+	Origen   string    `json:"origen"`
+	CreadoEn time.Time `json:"creado_en"`
 }
 
 // FiltroVentas para listar ventas.
@@ -182,6 +210,12 @@ type RepositorioVentas interface {
 	AgregarFoto(ctx context.Context, carpinteriaID, usuarioID, pedidoID int64, f FotoNueva) (FotoMueble, error)
 	BuscarFoto(ctx context.Context, carpinteriaID, pedidoID, fotoID int64) (tipo string, datos []byte, err error)
 	BorrarFoto(ctx context.Context, carpinteriaID, pedidoID, fotoID int64) error
+
+	// RetazosDisponibles trae los retazos de esas placas, por placa, para
+	// optimizar. depositoID 0 = de todos los depósitos.
+	RetazosDisponibles(ctx context.Context, carpinteriaID int64, placaIDs []int64, depositoID int64) (map[int64][]cortes.Retazo, error)
+	// BuscarMaterialesConfirmados trae el plan guardado al confirmar, o nil.
+	BuscarMaterialesConfirmados(ctx context.Context, carpinteriaID, pedidoID int64) (*muebles.Materiales, error)
 }
 
 // FotoMueble es una foto de un mueble del presupuesto (sin la imagen).
