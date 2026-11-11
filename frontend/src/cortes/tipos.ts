@@ -11,6 +11,8 @@ export interface Pieza {
   cantos: Cantos
 }
 
+export interface RetazoCorte { id: string; largo: number; ancho: number }
+
 export interface Parametros {
   placa_largo: number
   placa_ancho: number
@@ -19,6 +21,7 @@ export interface Parametros {
   refilado: number
   sobrante_min_largo: number
   sobrante_min_ancho: number
+  retazos?: RetazoCorte[]
 }
 
 export interface Rect { x: number; y: number; largo: number; ancho: number }

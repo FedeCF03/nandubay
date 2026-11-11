@@ -183,3 +183,83 @@ func TestConfirmarPresupuestoDescuentaMateriales(t *testing.T) {
 		t.Error("cancelar no devolvió los materiales")
 	}
 }
+
+func TestRetazos(t *testing.T) {
+	_, _, c, _, blanca, _, laPlata := prepararVenta(t) // 5 placas blancas en La Plata
+	if st, _ := c.pedir("POST", "/api/v1/retazos", map[string]any{"placa_id": blanca, "deposito_id": laPlata, "largo": 3000, "ancho": 100}); st != http.StatusUnprocessableEntity {
+		t.Errorf("retazo más grande que la placa: %d", st)
+	}
+	st, rz := c.pedir("POST", "/api/v1/retazos", map[string]any{"placa_id": blanca, "deposito_id": laPlata, "largo": 800, "ancho": 700, "nota": "estante de arriba"})
+	if st != http.StatusCreated || rz["placa"] == nil {
+		t.Fatalf("crear retazo: %d %v", st, rz)
+	}
+	disponibles := func() []map[string]any {
+		_, l := c.pedirLista("GET", "/api/v1/retazos?placa_id="+itoa(blanca))
+		return l
+	}
+	_, cli := c.pedir("POST", "/api/v1/clientes", map[string]any{"nombre": "Ana"})
+	presupuesto := func(largo, ancho, cant int) int64 {
+		_, p := c.pedir("POST", "/api/v1/presupuestos", map[string]any{"cliente_id": idDeJSON(cli), "muebles": []any{map[string]any{
+			"nombre": "Repisa", "cantidad": 1, "precio_unitario": 1000,
+			"piezas": []map[string]any{{"placa_id": blanca, "largo": largo, "ancho": ancho, "cantidad": cant}},
+		}}})
+		pl := p["materiales"].(map[string]any)["placas"].([]any)[0].(map[string]any)
+		t.Logf("placas %v retazos %v", pl["cantidad"], pl["retazos"])
+		return idDeJSON(p["venta"].(map[string]any))
+	}
+
+	// Dos piezas de 700×300 entran en el retazo de 800×700: no se usa ninguna placa.
+	id := presupuesto(700, 300, 2)
+	_, p := c.pedir("GET", "/api/v1/presupuestos/"+itoa(id), nil)
+	pl := p["materiales"].(map[string]any)["placas"].([]any)[0].(map[string]any)
+	if pl["cantidad"] != 0.0 || pl["retazos"] != 1.0 || pl["costo"] != 0.0 {
+		t.Fatalf("con retazo: %v", pl)
+	}
+	if st, r := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/confirmar", map[string]any{"deposito_id": laPlata}); st != http.StatusOK {
+		t.Fatalf("confirmar: %d %v", st, r)
+	}
+	if got := stockEn(t, c, blanca, laPlata); got != 5 {
+		t.Errorf("placas = %v, no se tenía que usar ninguna", got)
+	}
+	for _, x := range disponibles() {
+		if idDeJSON(x) == idDeJSON(rz) {
+			t.Errorf("el retazo sigue disponible: %v", x)
+		}
+	}
+	// Después de confirmar se ve el plan guardado, con el retazo.
+	_, p = c.pedir("GET", "/api/v1/presupuestos/"+itoa(id), nil)
+	plan := p["materiales"].(map[string]any)["placas"].([]any)[0].(map[string]any)["plan"].(map[string]any)
+	if plan["placas"].([]any)[0].(map[string]any)["retazo_id"] != itoa(idDeJSON(rz)) {
+		t.Errorf("plan confirmado: %v", plan)
+	}
+	if st, _ := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/cancelar", nil); st != http.StatusOK {
+		t.Fatal("cancelar")
+	}
+	if l := disponibles(); len(l) != 1 {
+		t.Fatalf("al cancelar el retazo vuelve: %v", l)
+	}
+
+	// Una pieza grande usa una placa entera y el sobrante queda como retazo.
+	id = presupuesto(1500, 1000, 1)
+	if st, r := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/confirmar", map[string]any{"deposito_id": laPlata}); st != http.StatusOK {
+		t.Fatalf("confirmar: %d %v", st, r)
+	}
+	nuevos := 0
+	for _, x := range disponibles() {
+		if x["origen"] != "" {
+			nuevos++
+		}
+	}
+	if nuevos == 0 || stockEn(t, c, blanca, laPlata) != 4 {
+		t.Errorf("sobrantes: %d retazos nuevos, %v placas", nuevos, stockEn(t, c, blanca, laPlata))
+	}
+	if st, _ := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/cancelar", nil); st != http.StatusOK {
+		t.Fatal("cancelar")
+	}
+	if l := disponibles(); len(l) != 1 {
+		t.Errorf("al cancelar se descartan los sobrantes: %v", l)
+	}
+	if st, _ := c.pedir("POST", "/api/v1/retazos/"+itoa(idDeJSON(rz))+"/descartar", nil); st != http.StatusNoContent || len(disponibles()) != 0 {
+		t.Errorf("descartar: %d", st)
+	}
+}

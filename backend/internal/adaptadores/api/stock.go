@@ -22,6 +22,9 @@ type CasosStock interface {
 	Ingresar(ctx context.Context, u *acceso.Usuario, productoID, depositoID int64, cantidad float64, costo *float64, nota string) error
 	Ajustar(ctx context.Context, u *acceso.Usuario, productoID, depositoID int64, contado float64, motivo string) error
 	Traspasar(ctx context.Context, u *acceso.Usuario, productoID, origen, destino int64, cantidad float64, nota string) error
+	ListarRetazos(ctx context.Context, u *acceso.Usuario, f aplicacion.FiltroRetazos) ([]aplicacion.RetazoStock, error)
+	CrearRetazo(ctx context.Context, u *acceso.Usuario, r aplicacion.RetazoStock) (aplicacion.RetazoStock, error)
+	DescartarRetazo(ctx context.Context, u *acceso.Usuario, id int64) error
 }
 
 func (s *Servidor) rutasStock(r chi.Router) {
@@ -33,6 +36,46 @@ func (s *Servidor) rutasStock(r chi.Router) {
 	r.With(requierePermiso("stock.editar")).Post("/stock/ingresos", s.ingresar)
 	r.With(requierePermiso("stock.editar")).Post("/stock/ajustes", s.ajustar)
 	r.With(requierePermiso("stock.editar")).Post("/stock/traspasos", s.traspasar)
+	r.With(requierePermiso("stock.ver")).Get("/retazos", s.listarRetazos)
+	r.With(requierePermiso("stock.editar")).Post("/retazos", s.crearRetazo)
+	r.With(requierePermiso("stock.editar")).Post("/retazos/{id}/descartar", s.descartarRetazo)
+}
+
+func (s *Servidor) listarRetazos(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	placa, _ := strconv.ParseInt(q.Get("placa_id"), 10, 64)
+	deposito, _ := strconv.ParseInt(q.Get("deposito_id"), 10, 64)
+	rs, err := s.Stock.ListarRetazos(r.Context(), UsuarioDe(r.Context()), aplicacion.FiltroRetazos{PlacaID: placa, DepositoID: deposito})
+	if err != nil {
+		responderErrorStock(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusOK, rs)
+}
+
+func (s *Servidor) crearRetazo(w http.ResponseWriter, r *http.Request) {
+	var in aplicacion.RetazoStock
+	if !leerJSON(w, r, &in) {
+		return
+	}
+	x, err := s.Stock.CrearRetazo(r.Context(), UsuarioDe(r.Context()), in)
+	if err != nil {
+		responderErrorStock(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusCreated, x)
+}
+
+func (s *Servidor) descartarRetazo(w http.ResponseWriter, r *http.Request) {
+	id, ok := idDe(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Stock.DescartarRetazo(r.Context(), UsuarioDe(r.Context()), id); err != nil {
+		responderErrorStock(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // responderErrorStock traduce los errores del dominio a códigos HTTP.

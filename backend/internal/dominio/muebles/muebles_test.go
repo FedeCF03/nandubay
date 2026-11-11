@@ -75,7 +75,7 @@ func TestCalcularVariasPlacas(t *testing.T) {
 	if err := Validar(ms, productos); err != nil {
 		t.Fatal(err)
 	}
-	mat, err := Calcular(ms, productos, 3)
+	mat, err := Calcular(ms, productos, 3, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

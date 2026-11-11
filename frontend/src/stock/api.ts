@@ -49,7 +49,7 @@ export interface Filtro { tipo: string; buscar: string }
 
 const CLAVE = ['stock']
 
-export function useProductos(f: Filtro) {
+export function useProductos(f: Filtro, enabled = true) {
   const q = new URLSearchParams()
   if (f.tipo) q.set('tipo', f.tipo)
   if (f.buscar.trim()) q.set('buscar', f.buscar.trim())
@@ -57,6 +57,7 @@ export function useProductos(f: Filtro) {
     queryKey: [...CLAVE, 'productos', f],
     queryFn: () => getJSON<ProductoConStock[]>(`/api/v1/productos?${q}`),
     placeholderData: keepPreviousData,
+    enabled,
   })
 }
 
@@ -121,4 +122,50 @@ export function detalle(p: Producto): string {
   if (p.tipo === 'placa') return `${p.largo_mm} × ${p.ancho_mm} × ${String(p.espesor_mm).replace('.', ',')} mm${p.tiene_veta ? ' · con veta' : ''}`
   if (p.tipo === 'canto' && p.canto_ancho_mm) return `${p.canto_ancho_mm} mm${p.canto_espesor_mm ? ` × ${String(p.canto_espesor_mm).replace('.', ',')} mm` : ''}`
   return [p.marca, p.color].filter(Boolean).join(' · ')
+}
+
+// Retazo es un sobrante de placa guardado en un depósito. El largo va en el
+// sentido de la veta, como en las placas.
+export interface Retazo {
+  id: number
+  placa_id: number
+  placa: string
+  deposito_id: number
+  deposito: string
+  largo: number
+  ancho: number
+  nota: string
+  origen: string
+  creado_en: string
+}
+
+export function useRetazos(placaID = 0, depositoID = 0, enabled = true) {
+  const q = new URLSearchParams()
+  if (placaID) q.set('placa_id', String(placaID))
+  if (depositoID) q.set('deposito_id', String(depositoID))
+  return useQuery({
+    queryKey: [...CLAVE, 'retazos', placaID, depositoID],
+    queryFn: () => getJSON<Retazo[]>(`/api/v1/retazos?${q}`),
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+}
+
+export function useRetazoAcciones() {
+  const qc = useQueryClient()
+  const refrescar = () => {
+    qc.invalidateQueries({ queryKey: [...CLAVE, 'retazos'] })
+    qc.invalidateQueries({ queryKey: ['ventas', 'presupuesto'] })
+    qc.invalidateQueries({ queryKey: ['presupuestos', 'calcular'] })
+  }
+  const crear = useMutation({
+    mutationFn: (r: { placa_id: number; deposito_id: number; largo: number; ancho: number; nota: string }) =>
+      postJSON<Retazo>('/api/v1/retazos', r),
+    onSuccess: refrescar,
+  })
+  const descartar = useMutation({
+    mutationFn: (id: number) => postJSON<void>(`/api/v1/retazos/${id}/descartar`),
+    onSuccess: refrescar,
+  })
+  return { crear, descartar }
 }

@@ -3,7 +3,7 @@ import { Layers, Package, Ruler } from 'lucide-react'
 import { PlacaSVG } from '@/cortes/PlacaSVG'
 import type { Pieza } from '@/cortes/tipos'
 import { fmtNumero, fmtPesos, unidadCorta, useProductos } from '@/stock/api'
-import type { Materiales, Mueble } from './api'
+import { cuantasPlacas, type Materiales, type Mueble } from './api'
 
 function Renglon({ nombre, detalle, costo }: { nombre: string; detalle: string; costo: number }) {
   return (
@@ -29,7 +29,7 @@ export function ResumenMateriales({ mat }: { mat: Materiales }) {
     <div className="space-y-4">
       {mat.placas.length > 0 && grupo('Placas', <Layers className="size-3.5" />, mat.placas.map((p) => (
         <Renglon key={p.producto_id} nombre={p.nombre} costo={p.costo}
-          detalle={`${p.cantidad} ${p.cantidad === 1 ? 'placa' : 'placas'} · aprovechamiento ${Math.round(p.aprovechamiento)} %`} />
+          detalle={[cuantasPlacas(p.cantidad, p.retazos), `aprovechamiento ${Math.round(p.aprovechamiento)} %`].join(' · ')} />
       )))}
       {mat.cantos.length > 0 && grupo('Canto', <Ruler className="size-3.5" />, mat.cantos.map((c) => (
         <Renglon key={c.producto_id} nombre={c.nombre} costo={c.costo} detalle={`${fmtNumero(c.cantidad)} m`} />
@@ -65,13 +65,13 @@ export function PlanesDeCorte({ mat, muebles }: { mat: Materiales; muebles: Mueb
       {mat.placas.map((pc) => (
         <section key={pc.producto_id} className="space-y-3 break-inside-avoid">
           <h3 className="font-semibold">
-            {pc.nombre} <span className="font-normal text-muted-foreground">· {pc.cantidad} {pc.cantidad === 1 ? 'placa' : 'placas'}</span>
+            {pc.nombre} <span className="font-normal text-muted-foreground">· {cuantasPlacas(pc.cantidad, pc.retazos)}</span>
           </h3>
           <div className="grid gap-4 md:grid-cols-2">
             {pc.plan.placas.map((pl) => (
               <figure key={pl.indice} className="space-y-1 break-inside-avoid">
                 <figcaption className="flex justify-between text-sm text-muted-foreground">
-                  <span>Placa {pl.indice} · {pl.piezas.length} piezas</span>
+                  <span>{pl.retazo_id ? `Retazo #${pl.retazo_id} (${pl.largo} × ${pl.ancho})` : `Placa ${pl.indice}`} · {pl.piezas.length} piezas</span>
                   <span>{Math.round(pl.aprovechamiento)} %</span>
                 </figcaption>
                 <PlacaSVG placa={pl} piezas={piezas} tieneVeta={veta.get(pc.producto_id) ?? false} />

@@ -6,7 +6,7 @@ import { PlacaSVG } from '@/cortes/PlacaSVG'
 import type { Cantos, Pieza } from '@/cortes/tipos'
 import { fmtNumero, unidadCorta, useProductos } from '@/stock/api'
 import { fmtDia, medidas, numeroVenta } from '@/ventas/api'
-import { tieneCanto, usePresupuesto, type PresupuestoMuebles } from '@/presupuestos/api'
+import { cuantasPlacas, tieneCanto, usePresupuesto, type PresupuestoMuebles } from '@/presupuestos/api'
 
 const lados = (c: Cantos) => (['l1', 'l2', 'a1', 'a2'] as const).filter((k) => c[k]).map((k) => k.toUpperCase()).join(' ')
 
@@ -74,7 +74,10 @@ function Hojas({ p }: { p: PresupuestoMuebles }) {
                 {mat.placas.map((x) => (
                   <tr key={x.producto_id} className="border-b border-neutral-300">
                     <td className="py-1">{x.nombre}</td>
-                    <td className="py-1 text-right font-semibold">{x.cantidad} {x.cantidad === 1 ? 'placa' : 'placas'}</td>
+                    <td className="py-1 text-right font-semibold">
+                      {cuantasPlacas(x.cantidad, x.retazos)}
+                      {x.retazos > 0 && <span className="font-normal text-neutral-600"> ({x.plan.placas.filter((pl) => pl.retazo_id).map((pl) => `#${pl.retazo_id}`).join(', ')})</span>}
+                    </td>
                   </tr>
                 ))}
                 {mat.cantos.map((x) => (
@@ -136,7 +139,9 @@ function Hojas({ p }: { p: PresupuestoMuebles }) {
         <article key={`${pc.producto_id}-${pl.indice}`}
           className="hoja-cortes hoja-apaisada mx-auto flex h-[210mm] w-[297mm] flex-col overflow-hidden gap-3 bg-white p-[10mm] text-[9.5pt] text-neutral-900 shadow-lg print:shadow-none">
           <header className="flex items-baseline justify-between gap-4 border-b-2 border-neutral-900 pb-2">
-            <h2 className="text-base font-bold">{pc.nombre} · placa {pl.indice} de {pc.plan.placas.length}</h2>
+            <h2 className="text-base font-bold">
+              {pc.nombre} · {pl.retazo_id ? `retazo #${pl.retazo_id} (${pl.largo} × ${pl.ancho} mm)` : `placa entera`} · {pl.indice} de {pc.plan.placas.length}
+            </h2>
             <span>{titulo} · {pl.piezas.length} piezas · {Math.round(pl.aprovechamiento)} %</span>
           </header>
           <div className="min-h-0 flex-1 [&_svg]:h-full [&_svg]:w-full">
@@ -152,6 +157,11 @@ function Hojas({ p }: { p: PresupuestoMuebles }) {
               )
             })}
           </ol>
+          {(pl.sobrantes ?? []).length > 0 && (
+            <p className="text-[8.5pt]">
+              <b>Guardar como retazo:</b> {(pl.sobrantes ?? []).map((r) => `${r.largo} × ${r.ancho}`).join(' · ')}
+            </p>
+          )}
         </article>
       )))}
     </>

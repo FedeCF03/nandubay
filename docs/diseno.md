@@ -127,6 +127,7 @@ guardan las piezas concretas en `piezas`. Así se pueden retocar a mano.
 1. Expande las piezas por cantidad y las ordena de mayor a menor.
 2. Para cada pieza busca, entre las placas ya abiertas, el hueco libre donde sobra
    menos. Prueba la pieza rotada solo si la placa no tiene veta o la pieza no la respeta.
+   Los retazos abiertos van primero, así se llenan antes de tocar una placa entera.
 3. Si no entra en ninguna, abre primero el retazo disponible más chico donde entre,
    y si no hay, una placa entera (descontando el refilado de cada borde).
 4. Al colocar una pieza, el hueco se parte en dos con un corte de lado a lado,
@@ -144,7 +145,7 @@ cortes para el operario, y guardar el plan en `planes_corte` desde un pedido.
 1. ~~Login y sesiones~~ (hecho, ver "Login y permisos").
 2. ~~Productos y stock con movimientos~~ (hecho, ver "Stock").
 3. ~~Ventas, pagos, boletas y retiros~~ (hecho, ver "Ventas y boletas"). Falta: muebles modelo con cálculo de fórmulas.
-4. Guardar planes de corte y generar retazos.
+4. ~~Generar y reutilizar retazos~~ (hecho, ver "Retazos").
 5. Estadísticas.
 6. Tipos del frontend generados desde OpenAPI.
 
@@ -227,6 +228,19 @@ despiece y los materiales y una hoja apaisada por placa, con la lista de piezas 
 - Las claves foráneas no pasan por RLS, así que el repositorio confirma que el
   depósito es de la carpintería antes de usarlo.
 - Stock bajo: total de todos los depósitos menor al stock mínimo del producto.
+
+## Retazos
+
+- Tabla `retazos` por depósito y placa, con estado disponible, usado o descartado,
+  el pedido que lo generó (`pedido_origen_id`) y el que lo usó (`pedido_uso_id`).
+- Se cargan a mano en Stock > Retazos (no pueden ser más grandes que la placa) y se descartan desde ahí.
+- El presupuesto de muebles calcula con los retazos disponibles de todos los
+  depósitos. Al confirmar se recalcula con los del depósito elegido y el plan se
+  guarda en `pedidos.materiales`. Los retazos del plan pasan a usados (si alguno
+  ya no está disponible, la confirmación falla) y los sobrantes grandes de cada
+  placa se guardan como retazos nuevos.
+- Al cancelar, los retazos usados vuelven a disponibles y los generados que nadie usó se descartan.
+- El optimizador suelto (Cortes) puede traer los retazos de una placa del stock o cargarlos a mano.
 
 ## Login y permisos
 

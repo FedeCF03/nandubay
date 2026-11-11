@@ -21,6 +21,7 @@ import {
 import { DialogoOperacion } from '@/stock/DialogoOperacion'
 import { FormProducto } from '@/stock/FormProducto'
 import { Movimientos } from '@/stock/Movimientos'
+import { Retazos } from '@/stock/Retazos'
 
 type Accion =
   | { tipo: 'producto'; producto: Partial<Producto> | null }
@@ -32,7 +33,7 @@ export default function Stock() {
   const [buscar, setBuscar] = useState('')
   const [soloBajo, setSoloBajo] = useState(false)
   const [accion, setAccion] = useState<Accion | null>(null)
-  const productos = useProductos({ tipo, buscar })
+  const productos = useProductos({ tipo: tipo === 'retazos' ? 'placa' : tipo, buscar })
   const depositos = useDepositos().data ?? []
   const editaProductos = usePermiso('productos.editar')
   const editaStock = usePermiso('stock.editar')
@@ -99,6 +100,7 @@ export default function Stock() {
       </div>
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
         <Tabs value={tipo || 'todos'} onValueChange={(v) => setTipo(v === 'todos' ? '' : v)}>
           <TabsList>
             <TabsTrigger value="todos">Todos</TabsTrigger>
@@ -106,8 +108,11 @@ export default function Stock() {
             <TabsTrigger value="canto">Cantos</TabsTrigger>
             <TabsTrigger value="herraje">Herrajes</TabsTrigger>
             <TabsTrigger value="otro">Otros</TabsTrigger>
+            {veStock && <TabsTrigger value="retazos">Retazos</TabsTrigger>}
           </TabsList>
         </Tabs>
+        </div>
+        {tipo !== 'retazos' && <>
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-8" placeholder="Buscar por nombre, código, color o marca" value={buscar}
@@ -119,9 +124,10 @@ export default function Stock() {
             <AlertTriangle /> {bajos} con stock bajo
           </Button>
         )}
+        </>}
       </div>
 
-      {productos.isPending ? (
+      {tipo === 'retazos' ? <Retazos /> : productos.isPending ? (
         <div className="space-y-2">{Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-14" />)}</div>
       ) : lista.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed py-16 text-center">

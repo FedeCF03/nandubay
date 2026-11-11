@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { AlertTriangle, Layers, Loader2, Plus, Printer, Recycle, Ruler, Scissors, Trash2 } from 'lucide-react'
 import { postJSON } from '@/api/cliente'
@@ -11,7 +12,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PlacaSVG } from './PlacaSVG'
 import { SelectorCantos } from './SelectorCantos'
-import type { Parametros, Pieza, Resultado } from './tipos'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { getJSON } from '@/api/cliente'
+import { useProductos, type Retazo } from '@/stock/api'
+import type { Parametros, Pieza, Resultado, RetazoCorte } from './tipos'
 
 let siguienteId = 4
 const nuevaPieza = (): Pieza => ({
@@ -67,6 +71,34 @@ export function Optimizador() {
     sobrante_min_largo: 300, sobrante_min_ancho: 150,
   })
   const [piezas, setPiezas] = useGuardado<Pieza[]>('nandubay.cortes.piezas', ejemplo)
+  const [retazos, setRetazos] = useGuardado<RetazoCorte[]>('nandubay.cortes.retazos', [])
+  const [placaStock, setPlacaStock] = useGuardado<string>('nandubay.cortes.placa-stock', '')
+  const veStock = usePermiso('stock.ver')
+  const placas = useProductos({ tipo: 'placa', buscar: '' }, veStock).data ?? []
+  const [errorRetazos, setErrorRetazos] = useState('')
+
+  // Elegir una placa del stock trae sus medidas y sus retazos disponibles.
+  const elegirPlaca = async (id: string) => {
+    setPlacaStock(id)
+    setErrorRetazos('')
+    const pl = placas.find((p) => String(p.id) === id)
+    if (!pl) return
+    setParams((x) => ({ ...x, placa_largo: pl.largo_mm ?? x.placa_largo, placa_ancho: pl.ancho_mm ?? x.placa_ancho,
+      tiene_veta: pl.tiene_veta, refilado: pl.refilado_mm }))
+    try {
+      const rs = await getJSON<Retazo[]>(`/api/v1/retazos?placa_id=${id}`)
+      setRetazos(rs.map((r) => ({ id: String(r.id), largo: r.largo, ancho: r.ancho })))
+    } catch (e) {
+      setErrorRetazos(e instanceof Error ? e.message : 'No se pudieron traer los retazos')
+    }
+  }
+  const setRetazo = (i: number, cambios: Partial<RetazoCorte>) =>
+    setRetazos((rs) => rs.map((r, j) => (j === i ? { ...r, ...cambios } : r)))
+  const agregarRetazo = () => setRetazos((rs) => {
+    let n = rs.length + 1
+    while (rs.some((r) => r.id === `R${n}`)) n++
+    return [...rs, { id: `R${n}`, largo: 0, ancho: 0 }]
+  })
   // Las piezas nuevas tienen que tener un id distinto de las guardadas.
   siguienteId = Math.max(siguienteId, ...piezas.map((p) => Number(p.id) + 1 || 0))
   const puedeGenerar = usePermiso('cortes.generar')
@@ -74,7 +106,7 @@ export function Optimizador() {
   const optimizar = useMutation({
     mutationFn: () =>
       postJSON<Resultado>('/api/v1/cortes/optimizar', {
-        parametros: params,
+        parametros: { ...params, retazos: retazos.filter((r) => r.largo > 0 && r.ancho > 0) },
         // Sin nombre, la pieza se llama como su renglón (lo mismo que muestra el campo vacío).
         piezas: piezas
           .map((p, i) => ({ ...p, etiqueta: p.etiqueta.trim() || `Pieza ${i + 1}` }))
@@ -111,6 +143,49 @@ export function Optimizador() {
             <Checkbox id="veta" checked={params.tiene_veta}
               onCheckedChange={(v) => setParams({ ...params, tiene_veta: v === true })} />
             <Label htmlFor="veta">La placa tiene veta</Label>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="no-imprimir">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            Retazos <Badge variant="secondary">{retazos.length}</Badge>
+          </CardTitle>
+          <CardDescription>
+            Sobrantes que se usan antes de abrir una placa entera. Podés traerlos del stock o cargarlos a mano.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {veStock && placas.length > 0 && (
+            <div className="grid gap-1.5 sm:max-w-sm">
+              <Label className="text-xs text-muted-foreground">Placa del stock (trae medidas y retazos)</Label>
+              <Select value={placaStock} onValueChange={elegirPlaca}>
+                <SelectTrigger className="w-full" aria-label="Placa del stock"><SelectValue placeholder="Elegí una placa" /></SelectTrigger>
+                <SelectContent>{placas.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.nombre}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          )}
+          {errorRetazos && <p className="text-sm text-destructive">{errorRetazos}</p>}
+          {retazos.length > 0 && (
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {retazos.map((r, i) => (
+                <div key={r.id} className="flex items-center gap-2 rounded-lg border p-2">
+                  <span className="w-12 shrink-0 text-center font-mono text-sm">{/^\d+$/.test(r.id) ? `#${r.id}` : r.id}</span>
+                  <Input type="number" inputMode="numeric" value={r.largo || ''} placeholder="Largo" aria-label={`Largo del retazo ${r.id}`}
+                    onChange={(e) => setRetazo(i, { largo: num(e.target.value) })} />
+                  <span className="text-muted-foreground">×</span>
+                  <Input type="number" inputMode="numeric" value={r.ancho || ''} placeholder="Ancho" aria-label={`Ancho del retazo ${r.id}`}
+                    onChange={(e) => setRetazo(i, { ancho: num(e.target.value) })} />
+                  <Button variant="ghost" size="icon" aria-label={`Quitar retazo ${r.id}`} className="shrink-0 text-muted-foreground"
+                    onClick={() => setRetazos(retazos.filter((_, j) => j !== i))}><Trash2 /></Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={agregarRetazo}><Plus /> Agregar retazo</Button>
+            {retazos.length > 0 && <Button variant="ghost" onClick={() => setRetazos([])}>Sacar todos</Button>}
           </div>
         </CardContent>
       </Card>
