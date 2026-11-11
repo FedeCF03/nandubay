@@ -1,7 +1,13 @@
 // Package ventas tiene las reglas de presupuestos, ventas, pagos y retiros.
 // Una venta nace como presupuesto; al confirmarla se elige de qué depósito
-// sale la mercadería y se descuenta el stock. El cliente la retira, de una vez
-// o por partes, en la sucursal de ese depósito mostrando la boleta.
+// sale la mercadería. El cliente la retira, de una vez o por partes, en la
+// sucursal de ese depósito mostrando la boleta.
+//
+// En el mostrador el stock se descuenta recién cuando el cliente retira.
+// Mientras tanto, si la venta tiene algo pagado (seña o pago), lo que falta
+// retirar queda reservado por DuracionReserva y no se le vende a otro.
+// En los presupuestos de muebles los materiales se descuentan al confirmar,
+// porque los usa el taller.
 package ventas
 
 import (
@@ -44,6 +50,12 @@ const (
 	Entregado   Estado = "entregado"
 	Cancelado   Estado = "cancelado"
 )
+
+// MesesReserva es cuánto dura la reserva de lo pagado y no retirado.
+const MesesReserva = 2
+
+// VenceReserva es hasta cuándo queda reservada una venta pagada en ahora.
+func VenceReserva(ahora time.Time) time.Time { return ahora.AddDate(0, MesesReserva, 0) }
 
 // EstadosProduccion son los que se cambian a mano mientras se fabrica.
 var EstadosProduccion = []Estado{Confirmado, EnCorte, EnArmado, Listo}
@@ -135,18 +147,20 @@ const (
 
 // Linea es un renglón de la venta: un producto del stock o un mueble.
 type Linea struct {
-	ID             int64     `json:"id"`
-	Tipo           TipoLinea `json:"tipo"`
-	ProductoID     int64     `json:"producto_id,omitempty"`
-	Descripcion    string    `json:"descripcion"`
-	Unidad         string    `json:"unidad"`
-	AnchoMM        int       `json:"ancho_mm,omitempty"`
-	AltoMM         int       `json:"alto_mm,omitempty"`
-	ProfundidadMM  int       `json:"profundidad_mm,omitempty"`
-	Cantidad       float64   `json:"cantidad"`
-	PrecioUnitario float64   `json:"precio_unitario"`
-	CostoUnitario  float64   `json:"-"`
-	Retirado       float64   `json:"retirado"`
+	ID          int64     `json:"id"`
+	Tipo        TipoLinea `json:"tipo"`
+	ProductoID  int64     `json:"producto_id,omitempty"`
+	Descripcion string    `json:"descripcion"`
+	Unidad      string    `json:"unidad"`
+	// Ubicacion es dónde está el producto en el depósito de la venta.
+	Ubicacion      string  `json:"ubicacion,omitempty"`
+	AnchoMM        int     `json:"ancho_mm,omitempty"`
+	AltoMM         int     `json:"alto_mm,omitempty"`
+	ProfundidadMM  int     `json:"profundidad_mm,omitempty"`
+	Cantidad       float64 `json:"cantidad"`
+	PrecioUnitario float64 `json:"precio_unitario"`
+	CostoUnitario  float64 `json:"-"`
+	Retirado       float64 `json:"retirado"`
 }
 
 func (l Linea) Subtotal() float64  { return Redondear(l.Cantidad * l.PrecioUnitario) }
@@ -298,6 +312,9 @@ type Pedido struct {
 	FechaEntrega *string        `json:"fecha_entrega"`
 	CreadoEn     time.Time      `json:"creado_en"`
 	ConfirmadoEn *time.Time     `json:"confirmado_en"`
+	// ReservadoHasta es hasta cuándo queda reservado lo que falta retirar
+	// (ventas de mostrador con algo pagado).
+	ReservadoHasta *time.Time `json:"reservado_hasta"`
 	// Consumido es lo que salió del stock al confirmar, por producto (de los
 	// movimientos guardados). Al cancelar se devuelve exactamente eso.
 	Consumido []Consumo `json:"-"`
@@ -360,6 +377,22 @@ func (p Pedido) TodoRetirado() bool {
 
 func (p Pedido) confirmada() bool { return esProduccion(p.Estado) }
 
+// Reservada dice si lo que falta retirar está reservado en ahora.
+func (p Pedido) Reservada(ahora time.Time) bool {
+	return p.Tipo == Mostrador && p.confirmada() && p.ReservadoHasta != nil && ahora.Before(*p.ReservadoHasta)
+}
+
+// pendientes son los productos del stock que falta retirar.
+func (p Pedido) pendientes() []Consumo {
+	var out []Consumo
+	for _, l := range p.Lineas {
+		if l.Tipo == LineaProducto {
+			out = append(out, Consumo{l.ProductoID, l.Pendiente()})
+		}
+	}
+	return sumarConsumos(out)
+}
+
 // Cambio es lo que hay que guardar después de una operación sobre la venta.
 // El repositorio lo aplica en la misma transacción en que leyó la venta.
 type Cambio struct {
@@ -376,6 +409,11 @@ type Cambio struct {
 	// Materiales es el plan con que se confirma un presupuesto de muebles:
 	// se guarda y marca los retazos usados y los sobrantes nuevos.
 	Materiales *muebles.Materiales
+	// Disponible son cantidades que tienen que estar libres en el depósito
+	// de la venta: lo que hay menos lo reservado por otras ventas.
+	Disponible []Consumo
+	// ReservarHasta empieza (o renueva) la reserva de lo que falta retirar.
+	ReservarHasta *time.Time
 }
 
 // DatosVenta son los datos generales que se editan mientras es presupuesto.
@@ -408,12 +446,14 @@ func (p Pedido) Editar(d DatosVenta, lineas []Linea) (Cambio, error) {
 	return Cambio{Lineas: lineas, Datos: &d}, nil
 }
 
-// Confirmar pasa el presupuesto a venta y descuenta el stock del depósito
-// elegido, que puede ser de otra sucursal.
-// Confirmar pasa el presupuesto a venta y descuenta del depósito los
-// productos de los renglones más los materiales de los muebles (placas,
-// canto e insumos calculados del despiece).
-func (p Pedido) Confirmar(depositoID int64, materiales []Consumo) (Cambio, error) {
+// Confirmar pasa el presupuesto a venta con el depósito elegido, que puede
+// ser de otra sucursal.
+//
+// En el mostrador no se descuenta nada: se controla que los productos estén
+// disponibles y, si ya hay algo pagado, quedan reservados. En un presupuesto
+// de muebles se descuentan del depósito los materiales calculados del
+// despiece (canto e insumos; las placas van aparte, al cortar).
+func (p Pedido) Confirmar(depositoID int64, materiales []Consumo, ahora time.Time) (Cambio, error) {
 	if p.Estado != Presupuesto {
 		return Cambio{}, fmt.Errorf("%w: ya está confirmada", ErrEstado)
 	}
@@ -421,6 +461,13 @@ func (p Pedido) Confirmar(depositoID int64, materiales []Consumo) (Cambio, error
 		return Cambio{}, ErrSinLineas
 	}
 	c := Cambio{Estado: ptr(Confirmado), DepositoID: &depositoID}
+	if p.Tipo == Mostrador {
+		c.Disponible = p.pendientes()
+		if p.Pagado() > 0 {
+			c.ReservarHasta = ptr(VenceReserva(ahora))
+		}
+		return c, nil
+	}
 	for _, x := range sumarConsumos(append(p.consumosDeLineas(), materiales...)) {
 		op, err := stock.Venta(x.ProductoID, depositoID, x.Cantidad, fmt.Sprintf("Venta N° %d", p.Numero))
 		if err != nil {
@@ -431,8 +478,10 @@ func (p Pedido) Confirmar(depositoID int64, materiales []Consumo) (Cambio, error
 	return c, nil
 }
 
-// RegistrarPago suma una seña o pago, o resta una devolución.
-func (p Pedido) RegistrarPago(pago Pago) (Cambio, error) {
+// RegistrarPago suma una seña o pago, o resta una devolución. En una venta de
+// mostrador confirmada, una seña o pago reserva lo que falta retirar por
+// MesesReserva meses, si no estaba ya reservado.
+func (p Pedido) RegistrarPago(pago Pago, ahora time.Time) (Cambio, error) {
 	if p.Estado == Cancelado {
 		return Cambio{}, fmt.Errorf("%w: está cancelada", ErrEstado)
 	}
@@ -457,7 +506,14 @@ func (p Pedido) RegistrarPago(pago Pago) (Cambio, error) {
 	default:
 		return Cambio{}, ErrValidacion{"tipo", "tipo de pago desconocido"}
 	}
-	return Cambio{Pago: &pago}, nil
+	c := Cambio{Pago: &pago}
+	if pago.Tipo != PagoDevolucion && p.Tipo == Mostrador && p.confirmada() && !p.Reservada(ahora) {
+		if pend := p.pendientes(); len(pend) > 0 {
+			c.Disponible = pend
+			c.ReservarHasta = ptr(VenceReserva(ahora))
+		}
+	}
+	return c, nil
 }
 
 // CambiarEstado mueve la venta entre los estados de fabricación. Entregada se
@@ -528,13 +584,33 @@ func (p Pedido) Retirar(sucursalID int64, items []RetiroItem, nota string) (Camb
 		return Cambio{}, ErrNadaQueRetirar
 	}
 	c := Cambio{Retiro: &RetiroNuevo{SucursalID: sucursalID, Nota: strings.TrimSpace(nota), Items: validos}}
+	// En el mostrador el stock sale del depósito ahora, cuando se lo lleva. Lo
+	// reservado para otras ventas no se toca (lo controla el repositorio).
+	if p.Tipo == Mostrador && p.DepositoID != nil {
+		var sale []Consumo
+		for _, it := range validos {
+			if it.Tipo == LineaProducto {
+				sale = append(sale, Consumo{lineas[clave{it.Tipo, it.LineaID}].ProductoID, it.Cantidad})
+			}
+		}
+		for _, x := range sumarConsumos(sale) {
+			op, err := stock.Venta(x.ProductoID, *p.DepositoID, x.Cantidad, fmt.Sprintf("Retiro de la venta N° %d", p.Numero))
+			if err != nil {
+				return Cambio{}, err
+			}
+			c.Operaciones = append(c.Operaciones, op)
+		}
+	}
 	if (Pedido{Lineas: nuevas}).TodoRetirado() {
 		c.Estado = ptr(Entregado)
 	}
 	return c, nil
 }
 
-// Cancelar anula la venta. Si ya estaba confirmada, el stock vuelve al depósito.
+// Cancelar anula la venta y libera la reserva. Si era un presupuesto de
+// muebles confirmado, los materiales vuelven al depósito. En el mostrador no
+// hay nada que devolver: el stock sale recién al retirar, y una venta con
+// retiros no se cancela.
 func (p Pedido) Cancelar() (Cambio, error) {
 	if p.Estado == Cancelado || p.Estado == Entregado {
 		return Cambio{}, ErrEstado
@@ -546,7 +622,7 @@ func (p Pedido) Cancelar() (Cambio, error) {
 		return Cambio{}, ErrConPagos
 	}
 	c := Cambio{Estado: ptr(Cancelado)}
-	if p.confirmada() && p.DepositoID != nil {
+	if p.Tipo != Mostrador && p.confirmada() && p.DepositoID != nil {
 		// Se devuelve lo que salió del stock; si no está registrado (ventas
 		// viejas), lo que dicen los renglones.
 		devolver := p.Consumido

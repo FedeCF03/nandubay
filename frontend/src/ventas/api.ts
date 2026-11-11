@@ -27,6 +27,8 @@ export interface Linea {
   cantidad: number
   precio_unitario: number
   retirado: number
+  // Dónde está guardado en el depósito de la venta.
+  ubicacion?: string
 }
 
 export interface Pago {
@@ -67,6 +69,8 @@ export interface Venta {
   fecha_entrega: string | null
   creado_en: string
   confirmado_en: string | null
+  // Hasta cuándo queda reservado lo que falta retirar (mostrador con algo pagado).
+  reservado_hasta: string | null
   total: number
   pagado: number
   saldo: number
@@ -174,8 +178,8 @@ export function useAccionVenta(id: number) {
     onSuccess: (v, a) => {
       qc.setQueryData([...CLAVE, 'venta', id], v)
       qc.invalidateQueries({ queryKey: [...CLAVE, 'lista'] })
-      // Confirmar y cancelar mueven stock.
-      if (a.accion === 'confirmar' || a.accion === 'cancelar') qc.invalidateQueries({ queryKey: ['stock'] })
+      // Confirmar, pagar (reserva), retirar y cancelar cambian el stock o lo reservado.
+      if (a.accion !== 'estado') qc.invalidateQueries({ queryKey: ['stock'] })
     },
   })
 }
@@ -212,6 +216,11 @@ export const fmtFecha = (s: string) => fecha.format(new Date(s))
 export const fmtFechaHora = (s: string) => fechaHora.format(new Date(s))
 // Las fechas sin hora (AAAA-MM-DD) se muestran tal cual, sin pasar por zona horaria.
 export const fmtDia = (s: string) => s.split('-').reverse().join('/')
+export const fmtFechaCorta = (s: string) => new Date(s).toLocaleDateString('es-AR')
+
+// Lo pagado y no retirado de una venta de mostrador queda reservado estos meses.
+export const MESES_RESERVA = 2
+export const reservaVigente = (v: Venta) => !!v.reservado_hasta && new Date(v.reservado_hasta) > new Date()
 
 export function medidas(l: { ancho_mm?: number; alto_mm?: number; profundidad_mm?: number }) {
   const m = [l.ancho_mm, l.alto_mm, l.profundidad_mm].filter((x) => x)

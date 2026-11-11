@@ -11,12 +11,24 @@ type FiltroProductos struct {
 	Inactivos   bool
 }
 
-// ProductoConStock es un producto con su stock en cada depósito.
+// ProductoConStock es un producto con su stock en cada depósito. Las
+// cantidades son lo que hay físicamente; Reservado es lo que ya pagaron
+// clientes y todavía no retiraron, y Disponible lo que se puede vender.
 type ProductoConStock struct {
 	Producto
-	PorDeposito map[int64]float64 `json:"por_deposito"`
-	Total       float64           `json:"total"`
-	Bajo        bool              `json:"bajo"`
+	PorDeposito    map[int64]float64 `json:"por_deposito"`
+	Reservado      map[int64]float64 `json:"reservado"`
+	Ubicaciones    map[int64]string  `json:"ubicaciones"`
+	Total          float64           `json:"total"`
+	ReservadoTotal float64           `json:"reservado_total"`
+	Disponible     float64           `json:"disponible"`
+	Bajo           bool              `json:"bajo"`
+}
+
+// UbicacionNueva es dónde está guardado un producto dentro de un depósito.
+type UbicacionNueva struct {
+	DepositoID int64  `json:"deposito_id"`
+	Ubicacion  string `json:"ubicacion"`
 }
 
 // MovimientoRegistrado es un movimiento ya guardado, para el historial.

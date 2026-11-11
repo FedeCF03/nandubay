@@ -150,14 +150,14 @@ func (s *ServicioVentas) Confirmar(ctx context.Context, u *acceso.Usuario, id, d
 		return VentaVista{}, err
 	}
 	return s.modificar(ctx, u, id, func(p ventas.Pedido) (ventas.Cambio, error) {
-		c, err := p.Confirmar(depositoID, consumos)
+		c, err := p.Confirmar(depositoID, consumos, time.Now())
 		c.Materiales = plan
 		return c, err
 	})
 }
 
 func (s *ServicioVentas) RegistrarPago(ctx context.Context, u *acceso.Usuario, id int64, pago ventas.Pago) (VentaVista, error) {
-	return s.modificar(ctx, u, id, func(p ventas.Pedido) (ventas.Cambio, error) { return p.RegistrarPago(pago) })
+	return s.modificar(ctx, u, id, func(p ventas.Pedido) (ventas.Cambio, error) { return p.RegistrarPago(pago, time.Now()) })
 }
 
 func (s *ServicioVentas) CambiarEstado(ctx context.Context, u *acceso.Usuario, id int64, e ventas.Estado) (VentaVista, error) {

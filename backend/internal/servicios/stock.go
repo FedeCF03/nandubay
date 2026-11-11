@@ -23,7 +23,7 @@ func (s *ServicioStock) ListarProductos(ctx context.Context, u *acceso.Usuario, 
 		return nil, err
 	}
 	for i := range ps {
-		ps[i].Bajo = stock.EstaBajo(ps[i].Total, ps[i].StockMinimo)
+		ps[i].Bajo = stock.EstaBajo(ps[i].Disponible, ps[i].StockMinimo)
 	}
 	return ps, nil
 }
@@ -51,6 +51,15 @@ func (s *ServicioStock) ActualizarProducto(ctx context.Context, u *acceso.Usuari
 		return p, err
 	}
 	return p, s.Repo.ActualizarProducto(ctx, u.CarpinteriaID, p)
+}
+
+// GuardarUbicaciones guarda dónde está guardado un producto en cada depósito.
+func (s *ServicioStock) GuardarUbicaciones(ctx context.Context, u *acceso.Usuario, productoID int64, us []stock.UbicacionNueva) error {
+	us, err := stock.NormalizarUbicaciones(us)
+	if err != nil {
+		return err
+	}
+	return s.Repo.GuardarUbicaciones(ctx, u.CarpinteriaID, productoID, us)
 }
 
 func (s *ServicioStock) ListarDepositos(ctx context.Context, u *acceso.Usuario) ([]stock.Deposito, error) {

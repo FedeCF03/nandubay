@@ -159,6 +159,7 @@ func cargarVenta(ctx context.Context, tx pgx.Tx, id int64) (ventas.Pedido, error
 	var entrega *time.Time
 	err := tx.QueryRow(ctx, `
 		SELECT p.id, p.numero, p.tipo, p.estado, coalesce(p.notas,''), p.fecha_entrega, p.creado_en, p.confirmado_en,
+		       p.reservado_hasta,
 		       s.id, s.nombre, coalesce(s.direccion,''), coalesce(s.telefono,''),
 		       p.deposito_id, coalesce(d.nombre,''),
 		       sr.id, coalesce(sr.nombre,''), coalesce(sr.direccion,''), coalesce(sr.telefono,''),
@@ -173,6 +174,7 @@ func cargarVenta(ctx context.Context, tx pgx.Tx, id int64) (ventas.Pedido, error
 		LEFT JOIN sucursales sr ON sr.id = d.sucursal_id
 		WHERE p.id = $1`, id).Scan(
 		&p.ID, &p.Numero, &p.Tipo, &p.Estado, &p.Notas, &entrega, &p.CreadoEn, &p.ConfirmadoEn,
+		&p.ReservadoHasta,
 		&p.Sucursal.ID, &p.Sucursal.Nombre, &p.Sucursal.Direccion, &p.Sucursal.Telefono,
 		&p.DepositoID, &p.Deposito,
 		&retiraID, &retira.Nombre, &retira.Direccion, &retira.Telefono,
@@ -220,9 +222,11 @@ func cargarVenta(ctx context.Context, tx pgx.Tx, id int64) (ventas.Pedido, error
 	var lineas []conOrden
 	rows, err = tx.Query(ctx, `
 		SELECT i.id, i.orden, i.producto_id, pr.tipo, coalesce(i.descripcion, pr.nombre),
-		       i.cantidad::float8, i.precio_unitario::float8, i.costo_unitario::float8, i.retirado::float8
+		       i.cantidad::float8, i.precio_unitario::float8, i.costo_unitario::float8, i.retirado::float8,
+		       coalesce(s.ubicacion, '')
 		FROM pedido_items i JOIN productos pr ON pr.id = i.producto_id
-		WHERE i.pedido_id = $1 AND i.pedido_mueble_id IS NULL`, id)
+		LEFT JOIN stock s ON s.producto_id = i.producto_id AND s.deposito_id = $2
+		WHERE i.pedido_id = $1 AND i.pedido_mueble_id IS NULL`, id, p.DepositoID)
 	if err != nil {
 		return p, err
 	}
@@ -231,7 +235,7 @@ func cargarVenta(ctx context.Context, tx pgx.Tx, id int64) (ventas.Pedido, error
 		var tipo stock.Tipo
 		x.l.Tipo = ventas.LineaProducto
 		if err := rows.Scan(&x.l.ID, &x.orden, &x.l.ProductoID, &tipo, &x.l.Descripcion,
-			&x.l.Cantidad, &x.l.PrecioUnitario, &x.l.CostoUnitario, &x.l.Retirado); err != nil {
+			&x.l.Cantidad, &x.l.PrecioUnitario, &x.l.CostoUnitario, &x.l.Retirado, &x.l.Ubicacion); err != nil {
 			rows.Close()
 			return p, err
 		}
@@ -586,6 +590,20 @@ func (r *RepoVentas) Modificar(ctx context.Context, carpinteriaID, usuarioID, id
 				return err
 			}
 		}
+		deposito := p.DepositoID
+		if c.DepositoID != nil {
+			deposito = c.DepositoID
+		}
+		if len(c.Disponible) > 0 && deposito != nil {
+			if err := controlarDisponible(ctx, tx, carpinteriaID, id, *deposito, c.Disponible); err != nil {
+				return err
+			}
+		}
+		if c.ReservarHasta != nil {
+			if _, err := tx.Exec(ctx, `UPDATE pedidos SET reservado_hasta = $2 WHERE id = $1`, id, *c.ReservarHasta); err != nil {
+				return err
+			}
+		}
 		if err := aplicarOperaciones(ctx, tx, carpinteriaID, usuarioID, &id, c.Operaciones); err != nil {
 			return err
 		}
@@ -645,6 +663,42 @@ func (r *RepoVentas) Modificar(ctx context.Context, carpinteriaID, usuarioID, id
 		return nil
 	})
 	return traducirFecha(err)
+}
+
+// controlarDisponible confirma que en el depósito alcanza lo que hay menos
+// lo reservado por otras ventas para cada producto. Bloquea los saldos (en
+// orden de producto, para no trabarse con otra venta) así dos ventas no
+// reservan a la vez lo mismo.
+func controlarDisponible(ctx context.Context, tx pgx.Tx, carpinteriaID, pedidoID, depositoID int64, cs []ventas.Consumo) error {
+	orden := make([]ventas.Consumo, len(cs))
+	copy(orden, cs)
+	sort.Slice(orden, func(i, j int) bool { return orden[i].ProductoID < orden[j].ProductoID })
+	for _, x := range orden {
+		if _, err := tx.Exec(ctx, `
+				INSERT INTO stock (carpinteria_id, producto_id, deposito_id, cantidad) VALUES ($1, $2, $3, 0)
+				ON CONFLICT (producto_id, deposito_id) DO NOTHING`, carpinteriaID, x.ProductoID, depositoID); err != nil {
+			return err
+		}
+		var hay float64
+		if err := tx.QueryRow(ctx, `
+				SELECT cantidad::float8 FROM stock WHERE producto_id = $1 AND deposito_id = $2 FOR UPDATE`,
+			x.ProductoID, depositoID).Scan(&hay); err != nil {
+			return err
+		}
+		var reservado float64
+		var nombre string
+		if err := tx.QueryRow(ctx, `
+				SELECT coalesce((SELECT sum(cantidad) FROM v_stock_reservado
+				                 WHERE producto_id = $1 AND deposito_id = $2 AND pedido_id <> $3), 0)::float8,
+				       (SELECT nombre FROM productos WHERE id = $1)`,
+			x.ProductoID, depositoID, pedidoID).Scan(&reservado, &nombre); err != nil {
+			return err
+		}
+		if err := stock.Faltante(nombre, hay, reservado, x.Cantidad); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *RepoVentas) ProductosVendidos(ctx context.Context, carpinteriaID int64, f ventas.FiltroVendidos) ([]ventas.ProductoVendido, error) {

@@ -34,6 +34,7 @@ export function DialogoOperacion({ tipo, producto, onClose }: {
   const [nota, setNota] = useState('')
   const origenID = deposito || (propio ? String(propio.id) : '')
   const enDeposito = producto.por_deposito[origenID] ?? 0
+  const reservadoAhi = producto.reservado[origenID] ?? 0
   const t = textos[tipo]
   const u2 = unidadCorta[producto.unidad] ?? producto.unidad
 
@@ -89,7 +90,8 @@ export function DialogoOperacion({ tipo, producto, onClose }: {
             )}
           </div>
           <p className="-mt-2 text-xs text-muted-foreground">
-            Hay {fmtNumero(enDeposito)} {u2} en {tipo === 'traspasos' ? 'el depósito de origen' : 'ese depósito'}.
+            Hay {fmtNumero(enDeposito)} {u2} en {tipo === 'traspasos' ? 'el depósito de origen' : 'ese depósito'}
+            {reservadoAhi > 0 && <>, {fmtNumero(reservadoAhi)} reservados para ventas pagadas{tipo === 'traspasos' && ' (no se pueden traspasar)'}</>}.
           </p>
 
           <div className="grid grid-cols-2 gap-3">

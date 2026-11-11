@@ -95,3 +95,22 @@ func TestNormalizarCategoriaDelProducto(t *testing.T) {
 		t.Fatalf("categoría 0 tiene que quedar vacía: %+v", p)
 	}
 }
+
+func TestUbicacionesYFaltante(t *testing.T) {
+	us, err := NormalizarUbicaciones([]UbicacionNueva{{DepositoID: 1, Ubicacion: "  Estante   B3 "}, {DepositoID: 2}})
+	if err != nil || us[0].Ubicacion != "Estante B3" || us[1].Ubicacion != "" {
+		t.Fatalf("%+v %v", us, err)
+	}
+	if _, err := NormalizarUbicaciones([]UbicacionNueva{{DepositoID: 1}, {DepositoID: 1}}); err == nil {
+		t.Error("depósito repetido")
+	}
+	if _, err := NormalizarUbicaciones([]UbicacionNueva{{DepositoID: 1, Ubicacion: strings.Repeat("x", 61)}}); err == nil {
+		t.Error("ubicación muy larga")
+	}
+	if Faltante("Placa", 5, 3, 2) != nil {
+		t.Error("5 - 3 reservadas alcanzan para 2")
+	}
+	if err := Faltante("Placa", 5, 3, 3); !errors.Is(err, ErrStockInsuficiente) {
+		t.Errorf("no alcanzan: %v", err)
+	}
+}

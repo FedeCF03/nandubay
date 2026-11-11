@@ -15,7 +15,8 @@ import { usePermiso } from '@/auth/sesion'
 import { cn } from '@/lib/utils'
 import { fmtNumero, fmtPesos, unidadCorta } from '@/stock/api'
 import {
-  fmtDia, fmtFechaHora, medidas, nombreEstado, nombrePago, numeroVenta, pendiente, useAccionVenta, useVenta,
+  fmtDia, fmtFechaCorta, fmtFechaHora, MESES_RESERVA, medidas, nombreEstado, nombrePago, numeroVenta, pendiente,
+  reservaVigente, useAccionVenta, useVenta,
   type Estado, type Venta as TVenta,
 } from '@/ventas/api'
 import { DialogoCancelar, DialogoConfirmar, DialogoPago, DialogoRetiro } from '@/ventas/Dialogos'
@@ -50,9 +51,21 @@ function Aviso({ v }: { v: TVenta }) {
         Se retira en <b>{v.retira.nombre}</b> ({v.deposito}){v.retira.direccion && `, ${v.retira.direccion}`}.
         {v.retira_aqui ? (v.pagada ? ' Podés entregarla desde esta sucursal.' : ` Para entregar tiene que estar paga: faltan ${fmtPesos(v.saldo)}.`)
           : ' Para entregarla, entrá a esa sucursal.'}
+        {v.tipo === 'mostrador' && <div className="mt-1"><Reserva v={v} /></div>}
       </div>
     </div>
   )
+}
+
+// Reserva explica qué pasa con el stock de lo que falta retirar.
+function Reserva({ v }: { v: TVenta }) {
+  if (reservaVigente(v) && v.reservado_hasta) {
+    return <>Lo que falta retirar está <b>reservado hasta el {fmtFechaCorta(v.reservado_hasta)}</b>; se descuenta del stock cuando lo retira.</>
+  }
+  if (v.reservado_hasta) {
+    return <>La reserva venció el {fmtFechaCorta(v.reservado_hasta)}: lo que falta retirar ya no está apartado y se puede vender a otro cliente.</>
+  }
+  return <>Todavía no está reservado: queda apartado {MESES_RESERVA} meses cuando pague una seña o el total.</>
 }
 
 export default function Venta() {
@@ -147,6 +160,9 @@ export default function Venta() {
                   <TableCell className="pl-4 whitespace-normal">
                     <div className="font-medium">{l.descripcion}</div>
                     <div className="text-xs text-muted-foreground">{l.tipo === 'mueble' ? ['Mueble a medida', medidas(l)].filter(Boolean).join(' · ') : 'Del stock'}</div>
+                    {l.ubicacion && !esPresupuesto && pendiente(l) > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-primary"><MapPin className="size-3" /> {l.ubicacion}</div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{fmtNumero(l.cantidad)} <span className="text-xs text-muted-foreground">{unidadCorta[l.unidad]}</span></TableCell>
                   {confirmada || v.estado === 'entregado' ? (

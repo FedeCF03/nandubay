@@ -3,6 +3,7 @@ package ventas
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/FedeCF03/nandubay/backend/internal/modelos/stock"
 )
@@ -27,7 +28,7 @@ func venta(t *testing.T, estado Estado, nuevas ...LineaNueva) Pedido {
 	gonnet := Lugar{ID: 10, Nombre: "Gonnet"}
 	laPlata := Lugar{ID: 20, Nombre: "La Plata"}
 	dep := int64(200)
-	return Pedido{ID: 1, Numero: 7, Estado: estado, Sucursal: gonnet, DepositoID: &dep, Retira: &laPlata, Lineas: ls}
+	return Pedido{ID: 1, Numero: 7, Tipo: Mostrador, Estado: estado, Sucursal: gonnet, DepositoID: &dep, Retira: &laPlata, Lineas: ls}
 }
 
 func TestArmarLineas(t *testing.T) {
@@ -70,33 +71,79 @@ func TestArmarLineas(t *testing.T) {
 	}
 }
 
-func TestConfirmarDescuentaStockPorProducto(t *testing.T) {
+var hoy = time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+
+func TestConfirmarMostradorNoDescuentaStock(t *testing.T) {
 	p := venta(t, Presupuesto,
 		LineaNueva{Tipo: LineaProducto, ProductoID: 1, Cantidad: 2},
-		LineaNueva{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 1, PrecioUnitario: f(1000)},
 		LineaNueva{Tipo: LineaProducto, ProductoID: 1, Cantidad: 1},
 		LineaNueva{Tipo: LineaProducto, ProductoID: 3, Cantidad: 4},
 	)
-	c, err := p.Confirmar(300, nil)
+	c, err := p.Confirmar(300, nil, hoy)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if *c.Estado != Confirmado || *c.DepositoID != 300 {
 		t.Errorf("cambio = %+v", c)
 	}
-	if len(c.Operaciones) != 2 {
-		t.Fatalf("esperaba una operación por producto, hay %d", len(c.Operaciones))
+	if len(c.Operaciones) != 0 {
+		t.Errorf("en el mostrador el stock se descuenta al retirar, no al confirmar: %+v", c.Operaciones)
 	}
-	op := c.Operaciones[0]
-	if op.ProductoID != 1 || op.DepositoID != 300 || op.Cantidad != -3 || op.Tipo != stock.MovVenta {
-		t.Errorf("operación = %+v", op.Movimiento)
+	// Tiene que haber disponible lo que se vende, sumado por producto.
+	if len(c.Disponible) != 2 || c.Disponible[0] != (Consumo{1, 3}) || c.Disponible[1] != (Consumo{3, 4}) {
+		t.Errorf("disponible = %+v", c.Disponible)
 	}
-	if _, err := op.Nuevo(2); !errors.Is(err, stock.ErrStockInsuficiente) {
-		t.Errorf("con 2 placas no alcanza para 3: %v", err)
+	if c.ReservarHasta != nil {
+		t.Error("sin pagos no se reserva")
 	}
 	p.Estado = Confirmado
-	if _, err := p.Confirmar(300, nil); !errors.Is(err, ErrEstado) {
+	if _, err := p.Confirmar(300, nil, hoy); !errors.Is(err, ErrEstado) {
 		t.Errorf("confirmar dos veces: %v", err)
+	}
+}
+
+func TestReservaAlPagar(t *testing.T) {
+	// Pagado antes de confirmar: se reserva al confirmar.
+	p := venta(t, Presupuesto, LineaNueva{Tipo: LineaProducto, ProductoID: 1, Cantidad: 2})
+	p.Pagos = []Pago{{Tipo: PagoSena, Monto: 1000}}
+	c, err := p.Confirmar(200, nil, hoy)
+	if err != nil || c.ReservarHasta == nil || !c.ReservarHasta.Equal(hoy.AddDate(0, 2, 0)) {
+		t.Fatalf("confirmar con seña reserva 2 meses: %v %v", c.ReservarHasta, err)
+	}
+
+	// Confirmada sin pagar: la seña reserva lo que falta retirar.
+	p = venta(t, Confirmado, LineaNueva{Tipo: LineaProducto, ProductoID: 1, Cantidad: 2})
+	if p.Reservada(hoy) {
+		t.Fatal("sin pagos no está reservada")
+	}
+	c, err = p.RegistrarPago(Pago{Tipo: PagoSena, Monto: 30000, Medio: "efectivo"}, hoy)
+	if err != nil || c.ReservarHasta == nil || len(c.Disponible) != 1 || c.Disponible[0] != (Consumo{1, 2}) {
+		t.Fatalf("la seña reserva: %+v %v", c, err)
+	}
+	p.ReservadoHasta = c.ReservarHasta
+	if !p.Reservada(hoy.AddDate(0, 1, 0)) || p.Reservada(hoy.AddDate(0, 2, 1)) {
+		t.Error("la reserva dura 2 meses")
+	}
+	// Otro pago con la reserva vigente no la estira.
+	c, _ = p.RegistrarPago(Pago{Tipo: PagoPago, Monto: 1000, Medio: "efectivo"}, hoy.AddDate(0, 1, 0))
+	if c.ReservarHasta != nil || c.Disponible != nil {
+		t.Errorf("con reserva vigente no se vuelve a reservar: %+v", c)
+	}
+	// Vencida, un pago nuevo reserva otra vez.
+	c, _ = p.RegistrarPago(Pago{Tipo: PagoPago, Monto: 1000, Medio: "efectivo"}, hoy.AddDate(0, 3, 0))
+	if c.ReservarHasta == nil {
+		t.Error("con la reserva vencida un pago reserva de nuevo")
+	}
+	// Una devolución no reserva.
+	p.ReservadoHasta = nil
+	p.Pagos = []Pago{{Tipo: PagoSena, Monto: 5000}}
+	if c, _ := p.RegistrarPago(Pago{Tipo: PagoDevolucion, Monto: 100, Medio: "efectivo"}, hoy); c.ReservarHasta != nil {
+		t.Error("una devolución no reserva")
+	}
+	// Un presupuesto de muebles no reserva: sus materiales salen al confirmar.
+	p.Tipo = Muebles
+	if c, _ := p.RegistrarPago(Pago{Tipo: PagoSena, Monto: 100, Medio: "efectivo"}, hoy); c.ReservarHasta != nil {
+		t.Error("muebles no reserva")
 	}
 }
 
@@ -105,7 +152,7 @@ func TestPagos(t *testing.T) {
 	if p.EstaPagada() {
 		t.Fatal("sin pagos no está pagada")
 	}
-	c, err := p.RegistrarPago(Pago{Tipo: PagoSena, Monto: 30000, Medio: "efectivo"})
+	c, err := p.RegistrarPago(Pago{Tipo: PagoSena, Monto: 30000, Medio: "efectivo"}, hoy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,16 +160,16 @@ func TestPagos(t *testing.T) {
 	if p.Saldo() != 70000 {
 		t.Errorf("saldo = %v", p.Saldo())
 	}
-	if _, err := p.RegistrarPago(Pago{Tipo: PagoPago, Monto: 70000.01, Medio: "efectivo"}); !errors.Is(err, ErrPagoExcedido) {
+	if _, err := p.RegistrarPago(Pago{Tipo: PagoPago, Monto: 70000.01, Medio: "efectivo"}, hoy); !errors.Is(err, ErrPagoExcedido) {
 		t.Errorf("pago de más: %v", err)
 	}
-	if _, err := p.RegistrarPago(Pago{Tipo: PagoPago, Monto: 10, Medio: " "}); err == nil {
+	if _, err := p.RegistrarPago(Pago{Tipo: PagoPago, Monto: 10, Medio: " "}, hoy); err == nil {
 		t.Error("sin medio de pago")
 	}
-	if _, err := p.RegistrarPago(Pago{Tipo: PagoDevolucion, Monto: 40000, Medio: "efectivo"}); err == nil {
+	if _, err := p.RegistrarPago(Pago{Tipo: PagoDevolucion, Monto: 40000, Medio: "efectivo"}, hoy); err == nil {
 		t.Error("devolver más de lo pagado")
 	}
-	c, _ = p.RegistrarPago(Pago{Tipo: PagoPago, Monto: 70000, Medio: "transferencia"})
+	c, _ = p.RegistrarPago(Pago{Tipo: PagoPago, Monto: 70000, Medio: "transferencia"}, hoy)
 	p.Pagos = append(p.Pagos, *c.Pago)
 	if !p.EstaPagada() {
 		t.Error("tendría que estar pagada")
@@ -159,6 +206,11 @@ func TestRetiroPorPartesEnLaSucursalDelDeposito(t *testing.T) {
 	if len(c.Retiro.Items) != 1 || c.Retiro.Items[0].Cantidad != 2 || c.Retiro.SucursalID != 20 {
 		t.Errorf("retiro = %+v", c.Retiro)
 	}
+	// El stock sale del depósito de la venta al retirar.
+	if len(c.Operaciones) != 1 || c.Operaciones[0].ProductoID != 1 || c.Operaciones[0].Cantidad != -2 ||
+		c.Operaciones[0].DepositoID != 200 || c.Operaciones[0].Tipo != stock.MovVenta {
+		t.Errorf("operaciones del retiro = %+v", c.Operaciones)
+	}
 	p.Lineas[0].Retirado = 2
 	p.Retiros = []Retiro{{ID: 1}}
 
@@ -181,6 +233,9 @@ func TestRetiroPorPartesEnLaSucursalDelDeposito(t *testing.T) {
 	}
 	if c.Estado == nil || *c.Estado != Entregado {
 		t.Error("con todo retirado queda entregada")
+	}
+	if len(c.Operaciones) != 2 || c.Operaciones[1].ProductoID != 2 || c.Operaciones[1].Cantidad != -10 {
+		t.Errorf("operaciones del segundo retiro = %+v", c.Operaciones)
 	}
 
 	p.Estado = Entregado
@@ -230,8 +285,8 @@ func TestCancelar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Operaciones) != 1 || c.Operaciones[0].Tipo != stock.MovDevolucion || c.Operaciones[0].Cantidad != 2 || c.Operaciones[0].DepositoID != 200 {
-		t.Errorf("tiene que devolver el stock al depósito: %+v", c.Operaciones)
+	if len(c.Operaciones) != 0 {
+		t.Errorf("en el mostrador no salió nada del stock, no hay nada que devolver: %+v", c.Operaciones)
 	}
 
 	p.Pagos = []Pago{{Tipo: PagoSena, Monto: 100}}
@@ -286,7 +341,8 @@ func TestConfirmarMueblesDescuentaMateriales(t *testing.T) {
 		LineaNueva{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 2, PrecioUnitario: f(1000)},
 		LineaNueva{Tipo: LineaProducto, ProductoID: 3, Cantidad: 4},
 	)
-	c, err := p.Confirmar(300, []Consumo{{1, 2}, {3, 6}, {4, 12.5}})
+	p.Tipo = Muebles
+	c, err := p.Confirmar(300, []Consumo{{1, 2}, {3, 6}, {4, 12.5}}, hoy)
 	if err != nil {
 		t.Fatal(err)
 	}
