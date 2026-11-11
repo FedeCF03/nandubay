@@ -136,3 +136,30 @@ func (s *ServicioStock) CrearRetazo(ctx context.Context, u *acceso.Usuario, r Re
 func (s *ServicioStock) DescartarRetazo(ctx context.Context, u *acceso.Usuario, id int64) error {
 	return s.Repo.DescartarRetazo(ctx, u.CarpinteriaID, id)
 }
+
+func (s *ServicioStock) ListarCategorias(ctx context.Context, u *acceso.Usuario) ([]stock.Categoria, error) {
+	return s.Repo.ListarCategorias(ctx, u.CarpinteriaID)
+}
+
+func (s *ServicioStock) CrearCategoria(ctx context.Context, u *acceso.Usuario, c stock.Categoria) (stock.Categoria, error) {
+	c.Normalizar()
+	c.Productos = 0
+	if err := c.Validar(); err != nil {
+		return c, err
+	}
+	id, err := s.Repo.CrearCategoria(ctx, u.CarpinteriaID, c)
+	c.ID = id
+	return c, err
+}
+
+func (s *ServicioStock) ActualizarCategoria(ctx context.Context, u *acceso.Usuario, c stock.Categoria) (stock.Categoria, error) {
+	c.Normalizar()
+	if err := c.Validar(); err != nil {
+		return c, err
+	}
+	return c, s.Repo.ActualizarCategoria(ctx, u.CarpinteriaID, c)
+}
+
+func (s *ServicioStock) BorrarCategoria(ctx context.Context, u *acceso.Usuario, id int64) error {
+	return s.Repo.BorrarCategoria(ctx, u.CarpinteriaID, id)
+}

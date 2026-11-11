@@ -1,5 +1,5 @@
 import {
-  BarChart3, Hammer, Home, Receipt, Package, Scissors, Sofa, Truck, Users, type LucideIcon,
+  BarChart3, Hammer, Home, Receipt, Package, Scissors, Sofa, Tags, Truck, Users, type LucideIcon,
 } from 'lucide-react'
 
 export interface ItemNav { ruta: string; titulo: string; icono: LucideIcon; permiso?: string }
@@ -30,6 +30,7 @@ export const navegacion: { grupo: string; items: ItemNav[] }[] = [
   {
     grupo: 'Administración',
     items: [
+      { ruta: '/categorias', titulo: 'Categorías de productos', icono: Tags, permiso: 'productos.editar' },
       { ruta: '/estadisticas', titulo: 'Estadísticas', icono: BarChart3, permiso: 'estadisticas.ver' },
       { ruta: '/usuarios', titulo: 'Usuarios y permisos', icono: Users, permiso: 'usuarios.ver' },
     ],

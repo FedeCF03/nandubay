@@ -90,9 +90,11 @@ type Reloj func() time.Time
 
 // FiltroProductos para listar productos.
 type FiltroProductos struct {
-	Tipo      string
-	Buscar    string
-	Inactivos bool
+	Tipo string
+	// CategoriaID filtra por categoría; -1 son los productos sin categoría.
+	CategoriaID int64
+	Buscar      string
+	Inactivos   bool
 }
 
 // ProductoConStock es un producto con su stock en cada depósito.
@@ -130,6 +132,14 @@ type RepositorioStock interface {
 	// DescartarRetazo saca de los disponibles un retazo que se tiró o se usó
 	// fuera del sistema. Devuelve stock.ErrNoEncontrado si no está disponible.
 	DescartarRetazo(ctx context.Context, carpinteriaID, id int64) error
+
+	// Categorías. CrearCategoria y ActualizarCategoria devuelven
+	// stock.ErrCategoriaEnUso si el nombre ya existe. BorrarCategoria deja
+	// sin categoría a sus productos.
+	ListarCategorias(ctx context.Context, carpinteriaID int64) ([]stock.Categoria, error)
+	CrearCategoria(ctx context.Context, carpinteriaID int64, c stock.Categoria) (int64, error)
+	ActualizarCategoria(ctx context.Context, carpinteriaID int64, c stock.Categoria) error
+	BorrarCategoria(ctx context.Context, carpinteriaID, id int64) error
 }
 
 // FiltroRetazos para listar retazos disponibles.
@@ -140,14 +150,14 @@ type FiltroRetazos struct {
 
 // RetazoStock es un sobrante de placa guardado en un depósito.
 type RetazoStock struct {
-	ID         int64     `json:"id"`
-	PlacaID    int64     `json:"placa_id"`
-	Placa      string    `json:"placa"`
-	DepositoID int64     `json:"deposito_id"`
-	Deposito   string    `json:"deposito"`
-	Largo      int       `json:"largo"`
-	Ancho      int       `json:"ancho"`
-	Nota       string    `json:"nota"`
+	ID         int64  `json:"id"`
+	PlacaID    int64  `json:"placa_id"`
+	Placa      string `json:"placa"`
+	DepositoID int64  `json:"deposito_id"`
+	Deposito   string `json:"deposito"`
+	Largo      int    `json:"largo"`
+	Ancho      int    `json:"ancho"`
+	Nota       string `json:"nota"`
 	// Origen dice de dónde salió: "Venta N° 12" o vacío si se cargó a mano.
 	Origen   string    `json:"origen"`
 	CreadoEn time.Time `json:"creado_en"`

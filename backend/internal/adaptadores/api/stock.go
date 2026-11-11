@@ -25,6 +25,10 @@ type CasosStock interface {
 	ListarRetazos(ctx context.Context, u *acceso.Usuario, f aplicacion.FiltroRetazos) ([]aplicacion.RetazoStock, error)
 	CrearRetazo(ctx context.Context, u *acceso.Usuario, r aplicacion.RetazoStock) (aplicacion.RetazoStock, error)
 	DescartarRetazo(ctx context.Context, u *acceso.Usuario, id int64) error
+	ListarCategorias(ctx context.Context, u *acceso.Usuario) ([]stock.Categoria, error)
+	CrearCategoria(ctx context.Context, u *acceso.Usuario, c stock.Categoria) (stock.Categoria, error)
+	ActualizarCategoria(ctx context.Context, u *acceso.Usuario, c stock.Categoria) (stock.Categoria, error)
+	BorrarCategoria(ctx context.Context, u *acceso.Usuario, id int64) error
 }
 
 func (s *Servidor) rutasStock(r chi.Router) {
@@ -39,6 +43,10 @@ func (s *Servidor) rutasStock(r chi.Router) {
 	r.With(requierePermiso("stock.ver")).Get("/retazos", s.listarRetazos)
 	r.With(requierePermiso("stock.editar")).Post("/retazos", s.crearRetazo)
 	r.With(requierePermiso("stock.editar")).Post("/retazos/{id}/descartar", s.descartarRetazo)
+	r.With(requierePermiso("productos.ver")).Get("/categorias", s.listarCategorias)
+	r.With(requierePermiso("productos.editar")).Post("/categorias", s.crearCategoria)
+	r.With(requierePermiso("productos.editar")).Put("/categorias/{id}", s.actualizarCategoria)
+	r.With(requierePermiso("productos.editar")).Delete("/categorias/{id}", s.borrarCategoria)
 }
 
 func (s *Servidor) listarRetazos(w http.ResponseWriter, r *http.Request) {
@@ -85,11 +93,11 @@ func responderErrorStock(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.As(err, &val):
 		responderJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": val.Mensaje, "campo": val.Campo})
 	case errors.Is(err, stock.ErrNoEncontrado):
-		responderError(w, http.StatusNotFound, "no se encontró el producto o el depósito")
+		responderError(w, http.StatusNotFound, "no se encontró el producto, el depósito o la categoría")
 	case errors.Is(err, stock.ErrStockInsuficiente), errors.Is(err, stock.ErrMismoDeposito),
 		errors.Is(err, stock.ErrCantidad):
 		responderError(w, http.StatusUnprocessableEntity, err.Error())
-	case errors.Is(err, stock.ErrSkuEnUso):
+	case errors.Is(err, stock.ErrSkuEnUso), errors.Is(err, stock.ErrCategoriaEnUso):
 		responderError(w, http.StatusConflict, err.Error())
 	default:
 		errorInterno(w, r, err)
@@ -109,6 +117,7 @@ func (s *Servidor) listarProductos(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	ps, err := s.Stock.ListarProductos(r.Context(), UsuarioDe(r.Context()), aplicacion.FiltroProductos{
 		Tipo: q.Get("tipo"), Buscar: q.Get("buscar"), Inactivos: q.Get("inactivos") == "1",
+		CategoriaID: categoriaDeFiltro(q.Get("categoria")),
 	})
 	if err != nil {
 		responderErrorStock(w, r, err)
@@ -213,4 +222,69 @@ func (s *Servidor) traspasar(w http.ResponseWriter, r *http.Request) {
 	s.movimiento(w, r, func(p pedidoMovimiento) error {
 		return s.Stock.Traspasar(r.Context(), UsuarioDe(r.Context()), p.ProductoID, p.DepositoID, p.DestinoID, p.Cantidad, p.Nota)
 	})
+}
+
+// categoriaDeFiltro lee ?categoria=: un id, "sin" para los productos sin
+// categoría, o vacío para todos.
+func categoriaDeFiltro(v string) int64 {
+	if v == "sin" {
+		return -1
+	}
+	id, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
+}
+
+func (s *Servidor) listarCategorias(w http.ResponseWriter, r *http.Request) {
+	cs, err := s.Stock.ListarCategorias(r.Context(), UsuarioDe(r.Context()))
+	if err != nil {
+		responderErrorStock(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusOK, cs)
+}
+
+func (s *Servidor) crearCategoria(w http.ResponseWriter, r *http.Request) {
+	var c stock.Categoria
+	if !leerJSON(w, r, &c) {
+		return
+	}
+	c, err := s.Stock.CrearCategoria(r.Context(), UsuarioDe(r.Context()), c)
+	if err != nil {
+		responderErrorStock(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusCreated, c)
+}
+
+func (s *Servidor) actualizarCategoria(w http.ResponseWriter, r *http.Request) {
+	id, ok := idDe(w, r)
+	if !ok {
+		return
+	}
+	var c stock.Categoria
+	if !leerJSON(w, r, &c) {
+		return
+	}
+	c.ID = id
+	c, err := s.Stock.ActualizarCategoria(r.Context(), UsuarioDe(r.Context()), c)
+	if err != nil {
+		responderErrorStock(w, r, err)
+		return
+	}
+	responderJSON(w, http.StatusOK, c)
+}
+
+func (s *Servidor) borrarCategoria(w http.ResponseWriter, r *http.Request) {
+	id, ok := idDe(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Stock.BorrarCategoria(r.Context(), UsuarioDe(r.Context()), id); err != nil {
+		responderErrorStock(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -7,11 +7,11 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { nombreTipo, useGuardarProducto, type Producto, type TipoProducto } from './api'
+import { nombreTipo, useCategorias, useGuardarProducto, type Producto, type TipoProducto } from './api'
 
 const vacio: Partial<Producto> = {
   tipo: 'placa', nombre: '', sku: '', marca: '', color: '', costo: 0, precio_venta: 0, stock_minimo: 0,
-  largo_mm: 2600, ancho_mm: 1830, espesor_mm: 18, tiene_veta: false, refilado_mm: 0, activo: true,
+  largo_mm: 2600, ancho_mm: 1830, espesor_mm: 18, tiene_veta: false, refilado_mm: 0, activo: true, categoria_id: null,
 }
 
 function Campo({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
@@ -27,6 +27,7 @@ function Campo({ label, children, className }: { label: string; children: React.
 export function FormProducto({ producto, onClose }: { producto: Partial<Producto> | null; onClose: () => void }) {
   const [p, setP] = useState<Partial<Producto>>(producto?.id ? producto : vacio)
   const guardar = useGuardarProducto()
+  const categorias = useCategorias().data ?? []
   const editando = !!producto?.id
   const set = (c: Partial<Producto>) => setP((v) => ({ ...v, ...c }))
   const num = (k: keyof Producto) => ({
@@ -68,6 +69,16 @@ export function FormProducto({ producto, onClose }: { producto: Partial<Producto
             <Campo label="Nombre" className="col-span-2">
               <Input required value={p.nombre} onChange={(e) => set({ nombre: e.target.value })}
                 placeholder={p.tipo === 'placa' ? 'Melamina Blanca 18 mm' : p.tipo === 'herraje' ? 'Bisagra cazoleta 35 mm' : ''} />
+            </Campo>
+            <Campo label="Categoría" className="col-span-2">
+              <Select value={p.categoria_id ? String(p.categoria_id) : 'ninguna'}
+                onValueChange={(v) => set({ categoria_id: v === 'ninguna' ? null : Number(v) })}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ninguna">Sin categoría</SelectItem>
+                  {categorias.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.nombre}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </Campo>
             <Campo label="Marca"><Input value={p.marca} onChange={(e) => set({ marca: e.target.value })} /></Campo>
             <Campo label="Color"><Input value={p.color} onChange={(e) => set({ color: e.target.value })} /></Campo>

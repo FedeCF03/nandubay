@@ -14,6 +14,7 @@ var (
 	ErrMismoDeposito     = errors.New("el depósito de origen y el de destino son el mismo")
 	ErrCantidad          = errors.New("la cantidad tiene que ser mayor a cero")
 	ErrSkuEnUso          = errors.New("ya hay un producto con ese código")
+	ErrCategoriaEnUso    = errors.New("ya hay una categoría con ese nombre")
 )
 
 // ErrValidacion es un error de datos cargados por el usuario.
@@ -62,6 +63,9 @@ type Producto struct {
 	CantoAnchoMM int     `json:"canto_ancho_mm,omitempty"`
 	CantoEspMM   float64 `json:"canto_espesor_mm,omitempty"`
 	Activo       bool    `json:"activo"`
+	// CategoriaID es opcional. Categoria es el nombre, solo para mostrar.
+	CategoriaID *int64 `json:"categoria_id"`
+	Categoria   string `json:"categoria,omitempty"`
 }
 
 // Normalizar limpia los datos y completa la unidad según el tipo.
@@ -71,6 +75,10 @@ func (p *Producto) Normalizar() {
 	p.Marca = strings.TrimSpace(p.Marca)
 	p.Color = strings.TrimSpace(p.Color)
 	p.Unidad = UnidadDe(p.Tipo)
+	p.Categoria = ""
+	if p.CategoriaID != nil && *p.CategoriaID <= 0 {
+		p.CategoriaID = nil
+	}
 	if p.Tipo != TipoPlaca {
 		p.LargoMM, p.AnchoMM, p.EspesorMM, p.TieneVeta, p.RefiladoMM = 0, 0, 0, false, 0
 	}
@@ -99,6 +107,36 @@ func (p Producto) Validar() error {
 		if p.RefiladoMM < 0 || 2*p.RefiladoMM >= min(p.LargoMM, p.AnchoMM) {
 			return ErrValidacion{"refilado_mm", "el refilado no es válido para esa placa"}
 		}
+	}
+	return nil
+}
+
+// Categoria agrupa productos (ej: placas, bisagras, guías). La arma cada
+// carpintería a su gusto; no cambia cómo se cuenta el stock.
+type Categoria struct {
+	ID          int64  `json:"id"`
+	Nombre      string `json:"nombre"`
+	Descripcion string `json:"descripcion"`
+	// Productos es cuántos productos activos tiene; solo para mostrar.
+	Productos int `json:"productos"`
+}
+
+// Normalizar limpia los textos de la categoría.
+func (c *Categoria) Normalizar() {
+	c.Nombre = strings.Join(strings.Fields(c.Nombre), " ")
+	c.Descripcion = strings.TrimSpace(c.Descripcion)
+}
+
+// Validar controla los datos de una categoría.
+func (c Categoria) Validar() error {
+	if c.Nombre == "" {
+		return ErrValidacion{"nombre", "falta el nombre de la categoría"}
+	}
+	if len([]rune(c.Nombre)) > 60 {
+		return ErrValidacion{"nombre", "el nombre de la categoría es muy largo (máximo 60 letras)"}
+	}
+	if len([]rune(c.Descripcion)) > 300 {
+		return ErrValidacion{"descripcion", "la descripción es muy larga (máximo 300 letras)"}
 	}
 	return nil
 }

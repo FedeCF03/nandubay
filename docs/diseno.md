@@ -100,7 +100,7 @@ Ver `backend/migrations/00001_esquema_inicial.sql`. Resumen:
 | Organización | `carpinterias`, `sucursales`, `depositos` |
 | Acceso | `usuarios`, `permisos` (catálogo fijo), `roles`, `rol_permisos`, `usuario_roles` |
 | Terceros | `clientes`, `proveedores` |
-| Stock | `productos` (placa, canto, herraje, otro), `stock`, `stock_movimientos`, vista `v_stock_bajo` |
+| Stock | `productos` (placa, canto, herraje, otro), `categorias_producto`, `stock`, `stock_movimientos`, vista `v_stock_bajo` |
 | Compras | `compras`, `compra_items` |
 | Muebles modelo | `muebles_modelo`, `mueble_modelo_piezas` (fórmulas), `mueble_modelo_herrajes` |
 | Pedidos | `pedidos`, `pedido_estados`, `pedido_muebles`, `piezas`, `pedido_items`, `pagos` |
