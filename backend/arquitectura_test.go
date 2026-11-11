@@ -10,9 +10,10 @@ import (
 	"testing"
 )
 
-// Orden de las carpetas: handlers → servicios → repositorios → modelos. Cada
-// una usa solo las que están a su derecha, y los modelos no dependen de
-// librerías. Si este test falla, hay un import en la carpeta equivocada.
+// Orden de las capas: handler → service → store → model. El service no
+// conoce al store de Postgres: usa sus interfaces, y cmd los conecta. Los
+// modelos no dependen de librerías. Si este test falla, hay un import en la
+// capa equivocada.
 const modulo = "github.com/FedeCF03/nandubay/backend/internal/"
 
 var reglas = []struct {
@@ -20,9 +21,9 @@ var reglas = []struct {
 	permitido []string // imports internos permitidos
 	externos  bool     // si puede usar librerías de terceros
 }{
-	{"internal/modelos", []string{"modelos/"}, false},
-	{"internal/repositorios", []string{"modelos/"}, true},
-	{"internal/servicios", []string{"modelos/", "repositorios"}, true},
+	{"internal/model", []string{"model/"}, false},
+	{"internal/store", []string{"model/"}, true},
+	{"internal/service", []string{"model/"}, false},
 }
 
 func TestReglaDeDependencias(t *testing.T) {

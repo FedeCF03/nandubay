@@ -23,7 +23,7 @@
 
 ## Arquitectura
 
-Monolito modular con **Repository Pattern** en el backend:
+Monolito modular con **Repository Pattern** en el backend (model, store, service y handler):
 
 ```
 Navegador (React SPA)
@@ -33,65 +33,68 @@ Navegador (React SPA)
    API Go ── PostgreSQL (Row Level Security por carpintería)
 ```
 
-### Carpetas del backend (Repository Pattern)
+### Capas del backend: Model, Store, Service y Handler (Repository Pattern)
 
-Cada pedido HTTP pasa por **handler → servicio → repositorio**. El código se
-agrupa por tipo, con un archivo por funcionalidad en cada carpeta:
+Cada pedido HTTP pasa por **handler → service → store**, y todos usan los
+**model**. La lógica de negocio vive en `service` y no conoce la base de datos:
+habla con una **interfaz Store** que define los métodos que necesita. La
+implementación con Postgres está en `store`, y `cmd` conecta una con la otra.
+Cambiar de base, o probar un service sin base, es pasarle otro Store.
 
 ```
 backend/
-├── cmd/                       Arranque: crea los repositorios, servicios y handlers
+├── cmd/                       Arranque: crea los store, los service y los handler
 │   ├── api/                   Servidor HTTP
 │   └── nandubay-admin/        Comandos de administración
 ├── internal/
-│   ├── modelos/               Datos y reglas de negocio, sin base ni HTTP
+│   ├── model/                 Datos y reglas de negocio puras, sin base ni HTTP
 │   │   ├── acceso/            Usuarios, sucursales, permisos, roles base, sesiones
 │   │   ├── stock/             Productos, depósitos, movimientos, retazos, categorías
-│   │   ├── ventas/            Clientes, ventas, pagos, retiros, fotos
+│   │   ├── ventas/            Pedidos (order): clientes, ventas, pagos, retiros, fotos
 │   │   ├── muebles/           Despiece, cálculo de materiales y precio
 │   │   └── cortes/            Optimizador, metros de canto, cortes optimizados
-│   ├── repositorios/          SQL con pgx: un repositorio por funcionalidad
+│   ├── service/               Lógica de negocio de cada funcionalidad
+│   │   └── dependencias.go    Interfaces Store (StoreStock, StoreVentas, StoreCortes,
+│   │                          StoreAcceso), Hasher y Tokens
+│   ├── store/                 Implementación de los Store con PostgreSQL (pgx)
 │   │   ├── conexion.go        Pool, transacciones y RLS (EnCarpinteria)
-│   │   └── repo_stock.go, repo_ventas.go, repo_cortes.go, ...
-│   ├── servicios/             Lógica de cada funcionalidad: valida, aplica las
-│   │                          reglas de los modelos y guarda con su repositorio
-│   ├── handlers/              HTTP: rutas, sesión, permisos, JSON
+│   │   └── stock.go, ventas.go, cortes.go, acceso.go, ...
+│   ├── handler/               HTTP: rutas, sesión, permisos, JSON
 │   ├── config/                Variables de entorno
 │   └── seguridad/             bcrypt y tokens de sesión
 └── migrations/                SQL versionado (goose)
 ```
 
-**Quién usa a quién**: handlers → servicios → repositorios → modelos.
+**Quién usa a quién**
 
-- `modelos` no importa nada fuera de `modelos` ni librerías externas.
-- `repositorios` importa solo `modelos` (y pgx).
-- `servicios` usa los repositorios directamente (`*repositorios.RepoStock`, etc.).
-  La única interfaz es la de acceso (`RepositorioAcceso`, `Hasher`, `Tokens`),
-  para probar el login sin base de datos.
-- `cmd` arma todo.
+- `model` no importa nada fuera de `model` ni librerías externas.
+- `store` importa solo `model` (y pgx).
+- `service` importa solo `model`: usa los Store por su interfaz, nunca `store`.
+- `handler` usa los service. `cmd` arma todo.
 
-`arquitectura_test.go` controla este orden: si un modelo importa pgx o un
-repositorio importa un servicio, el test falla.
+`arquitectura_test.go` controla estas reglas: si un service importa `store` o
+pgx, o un model importa una librería, el test falla.
 
 **Tests**
 
-- Modelos: tests unitarios (optimizador, permisos, precios, stock).
-- Servicios: el login, con dobles en memoria.
-- Handlers: tests de integración contra Postgres real (`NANDUBAY_TEST_DB`).
+- Model: tests unitarios (optimizador, permisos, precios, stock).
+- Service: con Store en memoria (por ejemplo el login), sin Postgres.
+- Handler: tests de integración contra Postgres real (`NANDUBAY_TEST_DB`).
 
 **Cómo sumar una funcionalidad** (por ejemplo stock):
 
-1. `modelos/stock`: los datos (Producto, Movimiento) y sus reglas.
-2. `repositorios/repo_stock.go`: el SQL.
-3. `servicios/stock.go`: la lógica, usando el repositorio.
-4. `handlers/stock.go`: rutas HTTP con su permiso.
-5. Conectarlo en `cmd/api/main.go`.
+1. `model/stock`: los datos (Producto, Movimiento) y sus reglas.
+2. `service/dependencias.go`: los métodos que necesita en `StoreStock`.
+3. `store/stock.go`: esos métodos con SQL.
+4. `service/stock.go`: la lógica, usando `StoreStock`.
+5. `handler/stock.go`: rutas HTTP con su permiso.
+6. Conectarlo en `cmd/api/main.go`.
 
 ### Otras decisiones
 
 - **Aislamiento entre carpinterías**: todas las tablas de datos tienen
-  `carpinteria_id` y una política RLS. Los repositorios abren cada transacción con
-  `repositorios.EnCarpinteria(...)`, que fija `app.carpinteria_id`; Postgres filtra el resto.
+  `carpinteria_id` y una política RLS. Los store abren cada transacción con
+  `store.EnCarpinteria(...)`, que fija `app.carpinteria_id`; Postgres filtra el resto.
   La API se conecta con un usuario sin superusuario (los superusuarios se saltean RLS).
 - **Medidas** en milímetros enteros. En las placas, `largo` es el sentido de la veta.
 - **Stock**: la tabla `stock` guarda el saldo por depósito y `stock_movimientos`
@@ -128,7 +131,7 @@ guardan las piezas concretas en `piezas`. Así se pueden retocar a mano.
 
 ## Optimizador de cortes
 
-`backend/internal/modelos/cortes`. Algoritmo guillotina con "mejor ajuste por área":
+`backend/internal/model/cortes`. Algoritmo guillotina con "mejor ajuste por área":
 
 1. Expande las piezas por cantidad y las ordena de mayor a menor.
 2. Para cada pieza busca, entre las placas ya abiertas, el hueco libre donde sobra
@@ -179,7 +182,7 @@ retiros. El mostrador tiene un resumen de **productos vendidos** por período y 
 - **Boleta A4**: dice PAGADA o SALDO PENDIENTE, dónde se retira, lo que queda por
   retirar y un QR a la venta. Lleva "X / Documento no válido como factura": no es una
   factura fiscal (no hay integración con AFIP).
-- El modelo devuelve un `ventas.Cambio` y el repositorio lo aplica con la venta
+- El modelo devuelve un `ventas.Cambio` y el store lo aplica con la venta
   bloqueada (`SELECT … FOR UPDATE`), así dos operaciones a la vez no se pisan.
 - Permisos: `pedidos.ver/editar/confirmar/estado`, `pagos.registrar` y el nuevo
   `retiros.registrar` (Admin, Vendedor y Depósito).
@@ -227,11 +230,11 @@ despiece y los materiales y una hoja apaisada por placa, con la lista de piezas 
 - Movimientos: **ingreso** (compra; actualiza el costo del producto), **ajuste por conteo**
   (se carga lo contado y se registra la diferencia, con motivo obligatorio) y
   **traspaso** entre depósitos, aunque sean de distintas sucursales.
-- El stock nunca queda negativo. La regla vive en `modelos/stock` como una
-  `Operacion` que calcula el saldo nuevo a partir del actual; el repositorio la
+- El stock nunca queda negativo. La regla vive en `model/stock` como una
+  `Operacion` que calcula el saldo nuevo a partir del actual; el store la
   aplica con la fila de saldo bloqueada (`SELECT ... FOR UPDATE`), así dos
   movimientos al mismo tiempo no se pisan. Hay un test con 20 salidas simultáneas.
-- Las claves foráneas no pasan por RLS, así que el repositorio confirma que el
+- Las claves foráneas no pasan por RLS, así que el store confirma que el
   depósito es de la carpintería antes de usarlo.
 - Stock bajo: total de todos los depósitos menor al stock mínimo del producto.
 
@@ -282,7 +285,7 @@ despiece y los materiales y una hoja apaisada por placa, con la lista de piezas 
 - **Permisos por sucursal**: la sesión guarda la sucursal elegida. Los permisos
   salen de los roles del usuario en esa sucursal más los roles sin sucursal.
   Cada endpoint declara el permiso que necesita (`requierePermiso("cortes.generar")`).
-  La regla de qué permisos aplican en cada sucursal está en `modelos/acceso`.
+  La regla de qué permisos aplican en cada sucursal está en `model/acceso`.
 - **Alta de carpinterías**: por ahora con `nandubay-admin crear-carpinteria`,
   que crea la carpintería, una sucursal, un depósito, los roles base y el admin.
 
