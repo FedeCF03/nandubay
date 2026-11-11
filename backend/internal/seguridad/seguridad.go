@@ -1,4 +1,4 @@
-// Package seguridad implementa los puertos Hasher y Tokens de la aplicación.
+// Package seguridad implementa acceso.Hasher y acceso.Tokens (bcrypt y tokens de sesión).
 package seguridad
 
 import (

@@ -23,7 +23,7 @@
 
 ## Arquitectura
 
-Monolito modular con **Repository Pattern** en el backend (model, store, service y handler):
+Monolito modular en el backend, con un paquete por módulo y Repository Pattern (service + Store):
 
 ```
 Navegador (React SPA)
@@ -33,68 +33,66 @@ Navegador (React SPA)
    API Go ── PostgreSQL (Row Level Security por carpintería)
 ```
 
-### Capas del backend: Model, Store, Service y Handler (Repository Pattern)
+### Backend: un paquete por módulo (Repository Pattern)
 
-Cada pedido HTTP pasa por **handler → service → store**, y todos usan los
-**model**. La lógica de negocio vive en `service` y no conoce la base de datos:
-habla con una **interfaz Store** que define los métodos que necesita. La
-implementación con Postgres está en `store`, y `cmd` conecta una con la otra.
-Cambiar de base, o probar un service sin base, es pasarle otro Store.
+Cada funcionalidad es una carpeta con todo lo suyo adentro: el modelo, el
+servicio con la lógica de negocio, la **interfaz Store** con lo que el servicio
+necesita de la base, su implementación con Postgres y el handler HTTP. Es la
+idea de "order / service / store / model": nada de use cases, controllers ni
+presenters. Para testear un servicio sin base o cambiar de base de datos,
+alcanza con otra implementación de Store.
 
 ```
 backend/
-├── cmd/                       Arranque: crea los store, los service y los handler
-│   ├── api/                   Servidor HTTP
+├── cmd/
+│   ├── api/                   Servidor HTTP: arma PostgresStore -> Servicio -> Handler
 │   └── nandubay-admin/        Comandos de administración
 ├── internal/
-│   ├── model/                 Datos y reglas de negocio puras, sin base ni HTTP
-│   │   ├── acceso/            Usuarios, sucursales, permisos, roles base, sesiones
-│   │   ├── stock/             Productos, depósitos, movimientos, retazos, categorías
-│   │   ├── ventas/            Pedidos (order): clientes, ventas, pagos, retiros, fotos
-│   │   ├── muebles/           Despiece, cálculo de materiales y precio
-│   │   └── cortes/            Optimizador, metros de canto, cortes optimizados
-│   ├── service/               Lógica de negocio de cada funcionalidad
-│   │   └── dependencias.go    Interfaces Store (StoreStock, StoreVentas, StoreCortes,
-│   │                          StoreAcceso), Hasher y Tokens
-│   ├── store/                 Implementación de los Store con PostgreSQL (pgx)
-│   │   ├── conexion.go        Pool, transacciones y RLS (EnCarpinteria)
-│   │   └── stock.go, ventas.go, cortes.go, acceso.go, ...
-│   ├── handler/               HTTP: rutas, sesión, permisos, JSON
+│   ├── acceso/                Usuarios, sucursales, permisos, login y sesiones
+│   ├── stock/                 Productos, categorías, depósitos, movimientos, retazos
+│   ├── ventas/                Pedidos: clientes, ventas, pagos, retiros, presupuestos
+│   │                          de muebles y fotos
+│   ├── cortes/                Optimizador y cortes optimizados
+│   ├── muebles/               Despiece, cálculo de materiales y precio (solo modelo)
+│   ├── db/                    Conexión, migraciones y RLS (EnCarpinteria)
+│   ├── web/                   Ayudas HTTP comunes (JSON, errores, id de la ruta)
+│   ├── servidor/              Router: junta los handler de cada módulo
 │   ├── config/                Variables de entorno
 │   └── seguridad/             bcrypt y tokens de sesión
 └── migrations/                SQL versionado (goose)
 ```
 
-**Quién usa a quién**
+Dentro de cada módulo (por ejemplo `stock/`):
 
-- `model` no importa nada fuera de `model` ni librerías externas.
-- `store` importa solo `model` (y pgx).
-- `service` importa solo `model`: usa los Store por su interfaz, nunca `store`.
-- `handler` usa los service. `cmd` arma todo.
+| Archivo | Qué tiene |
+|---|---|
+| `stock.go`, `vistas.go` | El modelo: datos y reglas, sin base ni HTTP |
+| `service.go` | `Servicio`: la lógica de negocio; usa `Store` |
+| `store.go` | `Store`: la interfaz con los métodos que el servicio necesita |
+| `postgres_store.go` | `PostgresStore`: implementa `Store` con SQL (pgx) |
+| `handler.go` | `Handler`: rutas HTTP con su permiso, llama al `Servicio` |
 
-`arquitectura_test.go` controla estas reglas: si un service importa `store` o
-pgx, o un model importa una librería, el test falla.
+Los módulos se usan entre sí cuando hace falta (ventas usa stock y cortes),
+siempre en un solo sentido: acceso ← stock ← cortes ← muebles ← ventas.
+
+`arquitectura_test.go` controla que el modelo, el servicio y `store.go` no
+importen la base ni HTTP, que `postgres_*.go` no importe HTTP y que
+`handler.go` no importe la base.
 
 **Tests**
 
-- Model: tests unitarios (optimizador, permisos, precios, stock).
-- Service: con Store en memoria (por ejemplo el login), sin Postgres.
-- Handler: tests de integración contra Postgres real (`NANDUBAY_TEST_DB`).
+- Modelo: tests unitarios en cada módulo (optimizador, permisos, precios, stock).
+- Servicio: con un Store en memoria (por ejemplo el login en `acceso`).
+- `servidor`: tests de integración contra Postgres real (`NANDUBAY_TEST_DB`).
 
-**Cómo sumar una funcionalidad** (por ejemplo stock):
-
-1. `model/stock`: los datos (Producto, Movimiento) y sus reglas.
-2. `service/dependencias.go`: los métodos que necesita en `StoreStock`.
-3. `store/stock.go`: esos métodos con SQL.
-4. `service/stock.go`: la lógica, usando `StoreStock`.
-5. `handler/stock.go`: rutas HTTP con su permiso.
-6. Conectarlo en `cmd/api/main.go`.
+**Cómo sumar una funcionalidad**: crear la carpeta del módulo con esos cinco
+archivos y conectarla en `cmd/api/main.go` y en `servidor/servidor.go`.
 
 ### Otras decisiones
 
 - **Aislamiento entre carpinterías**: todas las tablas de datos tienen
-  `carpinteria_id` y una política RLS. Los store abren cada transacción con
-  `store.EnCarpinteria(...)`, que fija `app.carpinteria_id`; Postgres filtra el resto.
+  `carpinteria_id` y una política RLS. Los PostgresStore abren cada transacción con
+  `db.EnCarpinteria(...)`, que fija `app.carpinteria_id`; Postgres filtra el resto.
   La API se conecta con un usuario sin superusuario (los superusuarios se saltean RLS).
 - **Medidas** en milímetros enteros. En las placas, `largo` es el sentido de la veta.
 - **Stock**: la tabla `stock` guarda el saldo por depósito y `stock_movimientos`
@@ -131,7 +129,7 @@ guardan las piezas concretas en `piezas`. Así se pueden retocar a mano.
 
 ## Optimizador de cortes
 
-`backend/internal/model/cortes`. Algoritmo guillotina con "mejor ajuste por área":
+`backend/internal/cortes`. Algoritmo guillotina con "mejor ajuste por área":
 
 1. Expande las piezas por cantidad y las ordena de mayor a menor.
 2. Para cada pieza busca, entre las placas ya abiertas, el hueco libre donde sobra
@@ -230,7 +228,7 @@ despiece y los materiales y una hoja apaisada por placa, con la lista de piezas 
 - Movimientos: **ingreso** (compra; actualiza el costo del producto), **ajuste por conteo**
   (se carga lo contado y se registra la diferencia, con motivo obligatorio) y
   **traspaso** entre depósitos, aunque sean de distintas sucursales.
-- El stock nunca queda negativo. La regla vive en `model/stock` como una
+- El stock nunca queda negativo. La regla vive en `stock` como una
   `Operacion` que calcula el saldo nuevo a partir del actual; el store la
   aplica con la fila de saldo bloqueada (`SELECT ... FOR UPDATE`), así dos
   movimientos al mismo tiempo no se pisan. Hay un test con 20 salidas simultáneas.
@@ -285,7 +283,7 @@ despiece y los materiales y una hoja apaisada por placa, con la lista de piezas 
 - **Permisos por sucursal**: la sesión guarda la sucursal elegida. Los permisos
   salen de los roles del usuario en esa sucursal más los roles sin sucursal.
   Cada endpoint declara el permiso que necesita (`requierePermiso("cortes.generar")`).
-  La regla de qué permisos aplican en cada sucursal está en `model/acceso`.
+  La regla de qué permisos aplican en cada sucursal está en `acceso`.
 - **Alta de carpinterías**: por ahora con `nandubay-admin crear-carpinteria`,
   que crea la carpintería, una sucursal, un depósito, los roles base y el admin.
 

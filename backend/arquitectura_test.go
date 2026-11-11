@@ -3,58 +3,58 @@ package backend_test
 import (
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-// Orden de las capas: handler → service → store → model. El service no
-// conoce al store de Postgres: usa sus interfaces, y cmd los conecta. Los
-// modelos no dependen de librerías. Si este test falla, hay un import en la
-// capa equivocada.
+// Cada módulo (internal/acceso, stock, cortes, ventas, muebles) es una carpeta
+// con su modelo, su servicio, su Store (interfaz), su PostgresStore y su
+// handler. Este test controla que cada archivo use solo lo que le corresponde:
+//
+//   - modelo, servicio y store.go: nada de base de datos ni de HTTP. El
+//     servicio habla con la base solo a través de la interfaz Store.
+//   - postgres_*.go: la base, pero nada de HTTP.
+//   - handler.go: HTTP, pero nada de base de datos.
 const modulo = "github.com/FedeCF03/nandubay/backend/internal/"
 
-var reglas = []struct {
-	capa      string
-	permitido []string // imports internos permitidos
-	externos  bool     // si puede usar librerías de terceros
-}{
-	{"internal/model", []string{"model/"}, false},
-	{"internal/store", []string{"model/"}, true},
-	{"internal/service", []string{"model/"}, false},
-}
+var (
+	deBase = []string{"github.com/jackc/pgx", modulo + "db"}
+	deHTTP = []string{"github.com/go-chi/chi", modulo + "web"}
+)
 
-func TestReglaDeDependencias(t *testing.T) {
-	for _, r := range reglas {
-		err := filepath.WalkDir(r.capa, func(ruta string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(ruta, ".go") {
-				return err
-			}
-			f, err := parser.ParseFile(token.NewFileSet(), ruta, nil, parser.ImportsOnly)
-			if err != nil {
-				return err
-			}
-			for _, imp := range f.Imports {
-				p, _ := strconv.Unquote(imp.Path.Value)
-				switch {
-				case strings.HasPrefix(p, modulo):
-					ok := false
-					for _, perm := range r.permitido {
-						ok = ok || strings.HasPrefix(strings.TrimPrefix(p, modulo), perm)
-					}
-					if !ok {
-						t.Errorf("%s importa %s, que no le corresponde", ruta, p)
-					}
-				case strings.Contains(strings.SplitN(p, "/", 2)[0], ".") && !r.externos:
-					t.Errorf("%s importa la librería externa %s; %s no debe depender de librerías", ruta, p, r.capa)
-				}
-			}
-			return nil
-		})
+func TestImportsPorArchivo(t *testing.T) {
+	archivos, err := filepath.Glob("internal/*/*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	modulos := map[string]bool{"acceso": true, "stock": true, "cortes": true, "ventas": true, "muebles": true}
+	for _, ruta := range archivos {
+		nombre := filepath.Base(ruta)
+		if !modulos[filepath.Base(filepath.Dir(ruta))] || strings.HasSuffix(nombre, "_test.go") {
+			continue
+		}
+		var prohibidos []string
+		switch {
+		case strings.HasPrefix(nombre, "postgres_"):
+			prohibidos = deHTTP
+		case nombre == "handler.go":
+			prohibidos = deBase
+		default:
+			prohibidos = append(append([]string{}, deBase...), deHTTP...)
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), ruta, nil, parser.ImportsOnly)
 		if err != nil {
 			t.Fatal(err)
+		}
+		for _, imp := range f.Imports {
+			p, _ := strconv.Unquote(imp.Path.Value)
+			for _, x := range prohibidos {
+				if strings.HasPrefix(p, x) {
+					t.Errorf("%s importa %s, que no le corresponde", ruta, p)
+				}
+			}
 		}
 	}
 }
