@@ -12,10 +12,10 @@ import (
 	_ "time/tzdata" // zona horaria de Argentina aunque la imagen no la traiga
 
 	"github.com/FedeCF03/nandubay/backend/internal/config"
-	"github.com/FedeCF03/nandubay/backend/internal/handlers"
-	"github.com/FedeCF03/nandubay/backend/internal/repositorios"
+	"github.com/FedeCF03/nandubay/backend/internal/handler"
 	"github.com/FedeCF03/nandubay/backend/internal/seguridad"
-	"github.com/FedeCF03/nandubay/backend/internal/servicios"
+	"github.com/FedeCF03/nandubay/backend/internal/service"
+	"github.com/FedeCF03/nandubay/backend/internal/store"
 )
 
 func main() {
@@ -33,7 +33,7 @@ func correr() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := repositorios.Conectar(ctx, cfg.DatabaseURL)
+	pool, err := store.Conectar(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
@@ -41,24 +41,24 @@ func correr() error {
 
 	if cfg.Migrar {
 		slog.Info("aplicando migraciones")
-		if err := repositorios.Migrar(pool); err != nil {
+		if err := store.Migrar(pool); err != nil {
 			return err
 		}
 	}
 
-	// Armado: repositorios -> servicios -> handlers.
-	casosAcceso := &servicios.ServicioAcceso{
-		Repo:   &repositorios.RepoAcceso{DB: pool},
+	// Armado: store (Postgres) -> service -> handler.
+	casosAcceso := &service.ServicioAcceso{
+		Store:  &store.Acceso{DB: pool},
 		Hasher: &seguridad.Bcrypt{},
 		Tokens: seguridad.Tokens{},
 	}
-	servidor := &handlers.Servidor{
+	servidor := &handler.Servidor{
 		Acceso:       casosAcceso,
-		Cortes:       servicios.ServicioCortes{Repo: &repositorios.RepoCortes{DB: pool}},
-		Stock:        &servicios.ServicioStock{Repo: &repositorios.RepoStock{DB: pool}},
-		Ventas:       &servicios.ServicioVentas{Repo: &repositorios.RepoVentas{DB: pool}},
+		Cortes:       service.ServicioCortes{Store: &store.Cortes{DB: pool}},
+		Stock:        &service.ServicioStock{Store: &store.Stock{DB: pool}},
+		Ventas:       &service.ServicioVentas{Store: &store.Ventas{DB: pool}},
 		Salud:        pool.Ping,
-		Limitador:    handlers.NuevoLimitador(10, 15*time.Minute),
+		Limitador:    handler.NuevoLimitador(10, 15*time.Minute),
 		CORSOrigen:   cfg.CORSOrigen,
 		CookieSegura: cfg.CookieSegura,
 	}
