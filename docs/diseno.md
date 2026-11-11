@@ -234,11 +234,11 @@ despiece y los materiales y una hoja apaisada por placa, con la lista de piezas 
 - Tabla `retazos` por depósito y placa, con estado disponible, usado o descartado,
   el pedido que lo generó (`pedido_origen_id`) y el que lo usó (`pedido_uso_id`).
 - Se cargan a mano en Stock > Retazos (no pueden ser más grandes que la placa) y se descartan desde ahí.
-- El presupuesto de muebles calcula con los retazos disponibles de todos los
-  depósitos. Al confirmar se recalcula con los del depósito elegido y el plan se
-  guarda en `pedidos.materiales`. Los retazos del plan pasan a usados (si alguno
-  ya no está disponible, la confirmación falla) y los sobrantes grandes de cada
-  placa se guardan como retazos nuevos.
+- El presupuesto de muebles se calcula siempre con placas enteras, sin retazos.
+  Al confirmar, el plan se guarda en `pedidos.materiales` y los sobrantes grandes
+  de cada placa se guardan como retazos nuevos.
+- Precio de cada mueble: costo de materiales × 1,7 (`muebles.Recargo`), redondeado a
+  la centena. Solo un mueble sin piezas ni herrajes lleva precio a mano.
 - Al cancelar, los retazos usados vuelven a disponibles y los generados que nadie usó se descartan.
 - El optimizador suelto (Cortes) puede traer los retazos de una placa del stock o cargarlos a mano.
 

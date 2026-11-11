@@ -186,8 +186,25 @@ type Materiales struct {
 	Insumos []MaterialCalculado `json:"insumos"`
 	Costo   float64             `json:"costo"`
 	// CostoPorMueble es el costo de materiales de una unidad de cada mueble.
-	// Las placas se reparten según la superficie de piezas de cada mueble.
+	// Las placas se cobran enteras y su costo se reparte según la superficie
+	// de piezas de cada mueble.
 	CostoPorMueble []float64 `json:"costo_por_mueble"`
+	// PrecioPorMueble es el precio de una unidad: costo × Recargo, redondeado
+	// a la centena para arriba.
+	PrecioPorMueble []float64 `json:"precio_por_mueble"`
+	// CantoPorMueble son los metros de canto de una unidad de cada mueble.
+	CantoPorMueble []float64 `json:"canto_por_mueble"`
+}
+
+// Recargo es por cuánto se multiplica el costo de materiales para el precio.
+const Recargo = 1.7
+
+// PrecioDe es el precio de venta para un costo de materiales.
+func PrecioDe(costo float64) float64 {
+	if costo <= 0 {
+		return 0
+	}
+	return math.Ceil(redondear(costo*Recargo)/100) * 100
 }
 
 func redondear(x float64) float64 { return math.Round(x*100) / 100 }
@@ -198,7 +215,8 @@ func redondear(x float64) float64 { return math.Round(x*100) / 100 }
 // retazos son los sobrantes disponibles de cada placa: se usan antes que las
 // placas enteras y no se cobran (ya se pagaron con la placa de la que salieron).
 func Calcular(ms []Mueble, productos map[int64]stock.Producto, kerf int, retazos map[int64][]cortes.Retazo) (Materiales, error) {
-	out := Materiales{Placas: []PlacaCalculada{}, Cantos: []MaterialCalculado{}, Insumos: []MaterialCalculado{}, CostoPorMueble: make([]float64, len(ms))}
+	out := Materiales{Placas: []PlacaCalculada{}, Cantos: []MaterialCalculado{}, Insumos: []MaterialCalculado{}, CostoPorMueble: make([]float64, len(ms)),
+		PrecioPorMueble: make([]float64, len(ms)), CantoPorMueble: make([]float64, len(ms))}
 
 	// Piezas por placa, con la cantidad multiplicada por la de muebles.
 	porPlaca := map[int64][]cortes.Pieza{}
@@ -287,12 +305,16 @@ func Calcular(ms []Mueble, productos map[int64]stock.Producto, kerf int, retazos
 			c += a * costoPorArea[id]
 		}
 		for id, ps := range cantoMueble[i] {
-			c += cortes.MetrosCanto(ps, MermaCantoMM) * productos[id].Costo
+			m := cortes.MetrosCanto(ps, MermaCantoMM)
+			c += m * productos[id].Costo
+			out.CantoPorMueble[i] += m
 		}
+		out.CantoPorMueble[i] = redondear(out.CantoPorMueble[i])
 		for _, ins := range m.Insumos {
 			c += ins.Cantidad * productos[ins.ProductoID].Costo
 		}
 		out.CostoPorMueble[i] = redondear(c)
+		out.PrecioPorMueble[i] = PrecioDe(out.CostoPorMueble[i])
 	}
 	return out, nil
 }

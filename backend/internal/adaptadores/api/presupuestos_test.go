@@ -208,35 +208,37 @@ func TestRetazos(t *testing.T) {
 		return idDeJSON(p["venta"].(map[string]any))
 	}
 
-	// Dos piezas de 700×300 entran en el retazo de 800×700: no se usa ninguna placa.
+	// El presupuesto no usa retazos: se calcula con placas enteras y el
+	// precio es el costo × 1,7 (aunque se mande otro).
 	id := presupuesto(700, 300, 2)
 	_, p := c.pedir("GET", "/api/v1/presupuestos/"+itoa(id), nil)
 	pl := p["materiales"].(map[string]any)["placas"].([]any)[0].(map[string]any)
-	if pl["cantidad"] != 0.0 || pl["retazos"] != 1.0 || pl["costo"] != 0.0 {
-		t.Fatalf("con retazo: %v", pl)
+	if pl["cantidad"] != 1.0 || pl["retazos"] != 0.0 || pl["costo"] != 50000.0 {
+		t.Fatalf("sin retazos: %v", pl)
+	}
+	if m := p["muebles"].([]any)[0].(map[string]any); m["precio_unitario"] != 85000.0 {
+		t.Errorf("precio = %v, quería 85000 (50000 × 1,7)", m["precio_unitario"])
 	}
 	if st, r := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/confirmar", map[string]any{"deposito_id": laPlata}); st != http.StatusOK {
 		t.Fatalf("confirmar: %d %v", st, r)
 	}
-	if got := stockEn(t, c, blanca, laPlata); got != 5 {
-		t.Errorf("placas = %v, no se tenía que usar ninguna", got)
+	if got := stockEn(t, c, blanca, laPlata); got != 4 {
+		t.Errorf("placas = %v, quería 4", got)
 	}
+	usado := true
 	for _, x := range disponibles() {
 		if idDeJSON(x) == idDeJSON(rz) {
-			t.Errorf("el retazo sigue disponible: %v", x)
+			usado = false
 		}
 	}
-	// Después de confirmar se ve el plan guardado, con el retazo.
-	_, p = c.pedir("GET", "/api/v1/presupuestos/"+itoa(id), nil)
-	plan := p["materiales"].(map[string]any)["placas"].([]any)[0].(map[string]any)["plan"].(map[string]any)
-	if plan["placas"].([]any)[0].(map[string]any)["retazo_id"] != itoa(idDeJSON(rz)) {
-		t.Errorf("plan confirmado: %v", plan)
+	if usado {
+		t.Errorf("el presupuesto no tenía que tocar el retazo")
 	}
 	if st, _ := c.pedir("POST", "/api/v1/ventas/"+itoa(id)+"/cancelar", nil); st != http.StatusOK {
 		t.Fatal("cancelar")
 	}
 	if l := disponibles(); len(l) != 1 {
-		t.Fatalf("al cancelar el retazo vuelve: %v", l)
+		t.Fatalf("al cancelar se descartan los sobrantes: %v", l)
 	}
 
 	// Una pieza grande usa una placa entera y el sobrante queda como retazo.
