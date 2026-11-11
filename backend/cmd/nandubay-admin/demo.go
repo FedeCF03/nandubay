@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FedeCF03/nandubay/backend/internal/adaptadores/postgres"
-	"github.com/FedeCF03/nandubay/backend/internal/aplicacion"
-	"github.com/FedeCF03/nandubay/backend/internal/dominio/acceso"
-	"github.com/FedeCF03/nandubay/backend/internal/dominio/cortes"
-	"github.com/FedeCF03/nandubay/backend/internal/dominio/muebles"
-	"github.com/FedeCF03/nandubay/backend/internal/dominio/stock"
-	"github.com/FedeCF03/nandubay/backend/internal/dominio/ventas"
+	"github.com/FedeCF03/nandubay/backend/internal/modelos/acceso"
+	"github.com/FedeCF03/nandubay/backend/internal/modelos/cortes"
+	"github.com/FedeCF03/nandubay/backend/internal/modelos/muebles"
+	"github.com/FedeCF03/nandubay/backend/internal/modelos/stock"
+	"github.com/FedeCF03/nandubay/backend/internal/modelos/ventas"
+	"github.com/FedeCF03/nandubay/backend/internal/repositorios"
+	"github.com/FedeCF03/nandubay/backend/internal/servicios"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -32,12 +32,12 @@ func cargarDemo(args []string) error {
 		return errors.New("falta -email")
 	}
 	ctx := context.Background()
-	pool, err := postgres.Conectar(ctx, os.Getenv("DATABASE_URL"))
+	pool, err := repositorios.Conectar(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	if err := postgres.Migrar(pool); err != nil {
+	if err := repositorios.Migrar(pool); err != nil {
 		return fmt.Errorf("migraciones: %w", err)
 	}
 	u, err := usuarioDe(ctx, pool, *email)
@@ -46,9 +46,9 @@ func cargarDemo(args []string) error {
 	}
 	d := &demo{
 		ctx: ctx, u: u, pool: pool,
-		stock:  &aplicacion.ServicioStock{Repo: &postgres.RepoStock{DB: pool}},
-		ventas: &aplicacion.ServicioVentas{Repo: &postgres.RepoVentas{DB: pool}},
-		cortes: aplicacion.ServicioCortes{Repo: &postgres.RepoCortes{DB: pool}},
+		stock:  &servicios.ServicioStock{Repo: &repositorios.RepoStock{DB: pool}},
+		ventas: &servicios.ServicioVentas{Repo: &repositorios.RepoVentas{DB: pool}},
+		cortes: servicios.ServicioCortes{Repo: &repositorios.RepoCortes{DB: pool}},
 		prod:   map[string]int64{},
 	}
 	if err := d.cargar(); err != nil {
@@ -59,7 +59,7 @@ func cargarDemo(args []string) error {
 }
 
 func usuarioDe(ctx context.Context, pool *pgxpool.Pool, email string) (*acceso.Usuario, error) {
-	repo := &postgres.RepoAcceso{DB: pool}
+	repo := &repositorios.RepoAcceso{DB: pool}
 	c, err := repo.BuscarCuenta(ctx, strings.ToLower(strings.TrimSpace(email)))
 	if err != nil {
 		return nil, fmt.Errorf("no encontré el usuario %s: %w", email, err)
@@ -80,16 +80,16 @@ type demo struct {
 	ctx    context.Context
 	u      *acceso.Usuario
 	pool   *pgxpool.Pool
-	stock  *aplicacion.ServicioStock
-	ventas *aplicacion.ServicioVentas
-	cortes aplicacion.ServicioCortes
+	stock  *servicios.ServicioStock
+	ventas *servicios.ServicioVentas
+	cortes servicios.ServicioCortes
 	prod   map[string]int64 // sku → id
 	dep1   int64            // depósito principal
 	dep2   int64            // depósito de la otra sucursal
 }
 
 func (d *demo) cargar() error {
-	ps, err := d.stock.ListarProductos(d.ctx, d.u, aplicacion.FiltroProductos{Buscar: "DEMO-", Inactivos: true})
+	ps, err := d.stock.ListarProductos(d.ctx, d.u, stock.FiltroProductos{Buscar: "DEMO-", Inactivos: true})
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func (d *demo) depositos() error {
 		d.dep2 = ds[1].ID
 		return nil
 	}
-	return postgres.EnCarpinteria(d.ctx, d.pool, d.u.CarpinteriaID, func(tx pgx.Tx) error {
+	return repositorios.EnCarpinteria(d.ctx, d.pool, d.u.CarpinteriaID, func(tx pgx.Tx) error {
 		var suc int64
 		if err := tx.QueryRow(d.ctx, `
 			INSERT INTO sucursales (carpinteria_id, nombre, direccion, telefono)
@@ -208,7 +208,7 @@ func (d *demo) productos() error {
 }
 
 func (d *demo) retazos() error {
-	lista := []aplicacion.RetazoStock{
+	lista := []stock.RetazoStock{
 		{PlacaID: d.prod["DEMO-BL18"], DepositoID: d.dep1, Largo: 1200, Ancho: 600, Nota: "Sobrante de un placard"},
 		{PlacaID: d.prod["DEMO-BL18"], DepositoID: d.dep1, Largo: 900, Ancho: 450},
 		{PlacaID: d.prod["DEMO-BL18"], DepositoID: d.dep1, Largo: 760, Ancho: 320},
@@ -374,7 +374,7 @@ func (d *demo) ventasDemo() error {
 	if _, err := d.ventas.RegistrarPago(d.ctx, d.u, p3.Venta.ID, ventas.Pago{Tipo: ventas.PagoPago, Monto: p3.Venta.Total, Medio: "efectivo"}); err != nil {
 		return err
 	}
-	cs, err := d.cortes.ListarCortes(d.ctx, d.u, aplicacion.CortePendiente)
+	cs, err := d.cortes.ListarCortes(d.ctx, d.u, cortes.CortePendiente)
 	if err != nil {
 		return err
 	}
@@ -392,7 +392,7 @@ func (d *demo) ventasDemo() error {
 	}
 
 	// 4. Un corte suelto desde el optimizador, pendiente, con veta vertical.
-	_, err = d.cortes.CrearCorte(d.ctx, d.u, aplicacion.CorteNuevo{
+	_, err = d.cortes.CrearCorte(d.ctx, d.u, cortes.CorteNuevo{
 		Nombre: "Frentes de cajonera (taller)", PlacaID: ro, DepositoID: d.dep1, Kerf: 3,
 		Piezas: []cortes.Pieza{
 			{ID: "1", Etiqueta: "Frente cajón", Largo: 596, Ancho: 180, Cantidad: 4, RespetaVeta: true, Cantos: todos},

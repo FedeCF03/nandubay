@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// Regla de dependencias de clean architecture: las capas internas no
-// importan a las externas. Si este test falla, hay un import en la capa
-// equivocada.
+// Orden de las carpetas: handlers → servicios → repositorios → modelos. Cada
+// una usa solo las que están a su derecha, y los modelos no dependen de
+// librerías. Si este test falla, hay un import en la carpeta equivocada.
 const modulo = "github.com/FedeCF03/nandubay/backend/internal/"
 
 var reglas = []struct {
@@ -20,8 +20,9 @@ var reglas = []struct {
 	permitido []string // imports internos permitidos
 	externos  bool     // si puede usar librerías de terceros
 }{
-	{"internal/dominio", []string{"dominio/"}, false},
-	{"internal/aplicacion", []string{"dominio/", "aplicacion"}, false},
+	{"internal/modelos", []string{"modelos/"}, false},
+	{"internal/repositorios", []string{"modelos/"}, true},
+	{"internal/servicios", []string{"modelos/", "repositorios"}, true},
 }
 
 func TestReglaDeDependencias(t *testing.T) {
@@ -43,10 +44,10 @@ func TestReglaDeDependencias(t *testing.T) {
 						ok = ok || strings.HasPrefix(strings.TrimPrefix(p, modulo), perm)
 					}
 					if !ok {
-						t.Errorf("%s importa %s, que es de una capa externa", ruta, p)
+						t.Errorf("%s importa %s, que no le corresponde", ruta, p)
 					}
 				case strings.Contains(strings.SplitN(p, "/", 2)[0], ".") && !r.externos:
-					t.Errorf("%s importa la librería externa %s; la capa %s no debe depender de librerías", ruta, p, r.capa)
+					t.Errorf("%s importa la librería externa %s; %s no debe depender de librerías", ruta, p, r.capa)
 				}
 			}
 			return nil

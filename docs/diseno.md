@@ -20,7 +20,7 @@
 
 ## Arquitectura
 
-Monolito modular con **clean architecture** en el backend:
+Monolito modular con **Repository Pattern** en el backend:
 
 ```
 Navegador (React SPA)
@@ -30,62 +30,65 @@ Navegador (React SPA)
    API Go ── PostgreSQL (Row Level Security por carpintería)
 ```
 
-### Capas del backend
+### Carpetas del backend (Repository Pattern)
+
+Cada pedido HTTP pasa por **handler → servicio → repositorio**. El código se
+agrupa por tipo, con un archivo por funcionalidad en cada carpeta:
 
 ```
 backend/
-├── cmd/                       Arranque: arma las capas y las conecta
+├── cmd/                       Arranque: crea los repositorios, servicios y handlers
 │   ├── api/                   Servidor HTTP
 │   └── nandubay-admin/        Comandos de administración
 ├── internal/
-│   ├── dominio/               Entidades y reglas de negocio puras
-│   │   ├── acceso/            Usuarios, sucursales, permisos, roles base
-│   │   ├── stock/             Productos, depósitos, ingresos, ajustes, traspasos
-│   │   └── cortes/            Optimizador de cortes y metros de canto
-│   ├── aplicacion/            Casos de uso y puertos (interfaces)
-│   │   ├── puertos.go         Lo que la aplicación necesita del exterior
-│   │   ├── acceso.go          Login, sesiones, alta de carpinterías
-│   │   ├── stock.go           Productos y movimientos de stock
-│   │   └── cortes.go          Optimizar cortes
-│   ├── adaptadores/           Implementan los puertos o exponen los casos de uso
-│   │   ├── api/               HTTP: rutas, sesión, permisos, JSON
-│   │   └── postgres/          Repositorios, conexión, migraciones, RLS
-│   └── plataforma/            Detalles técnicos
-│       ├── config/            Variables de entorno
-│       └── seguridad/         bcrypt y tokens de sesión
+│   ├── modelos/               Datos y reglas de negocio, sin base ni HTTP
+│   │   ├── acceso/            Usuarios, sucursales, permisos, roles base, sesiones
+│   │   ├── stock/             Productos, depósitos, movimientos, retazos, categorías
+│   │   ├── ventas/            Clientes, ventas, pagos, retiros, fotos
+│   │   ├── muebles/           Despiece, cálculo de materiales y precio
+│   │   └── cortes/            Optimizador, metros de canto, cortes optimizados
+│   ├── repositorios/          SQL con pgx: un repositorio por funcionalidad
+│   │   ├── conexion.go        Pool, transacciones y RLS (EnCarpinteria)
+│   │   └── repo_stock.go, repo_ventas.go, repo_cortes.go, ...
+│   ├── servicios/             Lógica de cada funcionalidad: valida, aplica las
+│   │                          reglas de los modelos y guarda con su repositorio
+│   ├── handlers/              HTTP: rutas, sesión, permisos, JSON
+│   ├── config/                Variables de entorno
+│   └── seguridad/             bcrypt y tokens de sesión
 └── migrations/                SQL versionado (goose)
 ```
 
-**Regla de dependencias**: cada capa solo conoce a las de adentro.
+**Quién usa a quién**: handlers → servicios → repositorios → modelos.
 
-- `dominio` no importa nada del proyecto ni librerías externas.
-- `aplicacion` importa solo `dominio`. Habla con la base, el hash de
-  contraseñas, etc. a través de interfaces (`RepositorioAcceso`, `Hasher`, `Tokens`).
-- `adaptadores` y `plataforma` implementan esas interfaces.
-- `cmd` es el único lugar que conoce todo y arma las piezas.
+- `modelos` no importa nada fuera de `modelos` ni librerías externas.
+- `repositorios` importa solo `modelos` (y pgx).
+- `servicios` usa los repositorios directamente (`*repositorios.RepoStock`, etc.).
+  La única interfaz es la de acceso (`RepositorioAcceso`, `Hasher`, `Tokens`),
+  para probar el login sin base de datos.
+- `cmd` arma todo.
 
-`arquitectura_test.go` controla esta regla: si alguien importa pgx o el
-adaptador HTTP desde el dominio o la aplicación, el test falla.
+`arquitectura_test.go` controla este orden: si un modelo importa pgx o un
+repositorio importa un servicio, el test falla.
 
-**Tests por capa**
+**Tests**
 
-- Dominio: tests unitarios puros (optimizador, resolución de permisos).
-- Aplicación: tests con dobles en memoria, sin Postgres.
-- Adaptadores: tests de integración contra Postgres real (`NANDUBAY_TEST_DB`).
+- Modelos: tests unitarios (optimizador, permisos, precios, stock).
+- Servicios: el login, con dobles en memoria.
+- Handlers: tests de integración contra Postgres real (`NANDUBAY_TEST_DB`).
 
-**Cómo sumar un módulo nuevo** (por ejemplo stock):
+**Cómo sumar una funcionalidad** (por ejemplo stock):
 
-1. `dominio/stock`: entidades (Producto, Movimiento) y reglas.
-2. `aplicacion/stock.go`: casos de uso y el puerto `RepositorioStock` en `puertos.go`.
-3. `adaptadores/postgres/repo_stock.go`: implementación con SQL.
-4. `adaptadores/api/stock.go`: rutas HTTP con su permiso.
+1. `modelos/stock`: los datos (Producto, Movimiento) y sus reglas.
+2. `repositorios/repo_stock.go`: el SQL.
+3. `servicios/stock.go`: la lógica, usando el repositorio.
+4. `handlers/stock.go`: rutas HTTP con su permiso.
 5. Conectarlo en `cmd/api/main.go`.
 
 ### Otras decisiones
 
 - **Aislamiento entre carpinterías**: todas las tablas de datos tienen
   `carpinteria_id` y una política RLS. Los repositorios abren cada transacción con
-  `postgres.EnCarpinteria(...)`, que fija `app.carpinteria_id`; Postgres filtra el resto.
+  `repositorios.EnCarpinteria(...)`, que fija `app.carpinteria_id`; Postgres filtra el resto.
   La API se conecta con un usuario sin superusuario (los superusuarios se saltean RLS).
 - **Medidas** en milímetros enteros. En las placas, `largo` es el sentido de la veta.
 - **Stock**: la tabla `stock` guarda el saldo por depósito y `stock_movimientos`
@@ -122,7 +125,7 @@ guardan las piezas concretas en `piezas`. Así se pueden retocar a mano.
 
 ## Optimizador de cortes
 
-`backend/internal/dominio/cortes`. Algoritmo guillotina con "mejor ajuste por área":
+`backend/internal/modelos/cortes`. Algoritmo guillotina con "mejor ajuste por área":
 
 1. Expande las piezas por cantidad y las ordena de mayor a menor.
 2. Para cada pieza busca, entre las placas ya abiertas, el hueco libre donde sobra
@@ -173,7 +176,7 @@ retiros. El mostrador tiene un resumen de **productos vendidos** por período y 
 - **Boleta A4**: dice PAGADA o SALDO PENDIENTE, dónde se retira, lo que queda por
   retirar y un QR a la venta. Lleva "X / Documento no válido como factura": no es una
   factura fiscal (no hay integración con AFIP).
-- El dominio devuelve un `ventas.Cambio` y el repositorio lo aplica con la venta
+- El modelo devuelve un `ventas.Cambio` y el repositorio lo aplica con la venta
   bloqueada (`SELECT … FOR UPDATE`), así dos operaciones a la vez no se pisan.
 - Permisos: `pedidos.ver/editar/confirmar/estado`, `pagos.registrar` y el nuevo
   `retiros.registrar` (Admin, Vendedor y Depósito).
@@ -221,7 +224,7 @@ despiece y los materiales y una hoja apaisada por placa, con la lista de piezas 
 - Movimientos: **ingreso** (compra; actualiza el costo del producto), **ajuste por conteo**
   (se carga lo contado y se registra la diferencia, con motivo obligatorio) y
   **traspaso** entre depósitos, aunque sean de distintas sucursales.
-- El stock nunca queda negativo. La regla vive en `dominio/stock` como una
+- El stock nunca queda negativo. La regla vive en `modelos/stock` como una
   `Operacion` que calcula el saldo nuevo a partir del actual; el repositorio la
   aplica con la fila de saldo bloqueada (`SELECT ... FOR UPDATE`), así dos
   movimientos al mismo tiempo no se pisan. Hay un test con 20 salidas simultáneas.
@@ -276,7 +279,7 @@ despiece y los materiales y una hoja apaisada por placa, con la lista de piezas 
 - **Permisos por sucursal**: la sesión guarda la sucursal elegida. Los permisos
   salen de los roles del usuario en esa sucursal más los roles sin sucursal.
   Cada endpoint declara el permiso que necesita (`requierePermiso("cortes.generar")`).
-  La regla de qué permisos aplican en cada sucursal está en `dominio/acceso`.
+  La regla de qué permisos aplican en cada sucursal está en `modelos/acceso`.
 - **Alta de carpinterías**: por ahora con `nandubay-admin crear-carpinteria`,
   que crea la carpintería, una sucursal, un depósito, los roles base y el admin.
 
