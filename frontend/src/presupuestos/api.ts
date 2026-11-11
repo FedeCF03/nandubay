@@ -62,7 +62,7 @@ export interface Materiales {
 
 // RECARGO es por cuánto se multiplica el costo de materiales para el precio
 // (igual que muebles.Recargo en el backend).
-export const RECARGO = 1.7
+export const RECARGO = 2.7
 
 export interface PresupuestoMuebles {
   venta: Venta

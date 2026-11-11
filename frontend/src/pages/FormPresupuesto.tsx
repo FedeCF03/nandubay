@@ -239,7 +239,7 @@ function Formulario({ presupuesto, productos }: { presupuesto?: PresupuestoMuebl
                         onChange={(e) => cambiarMueble(m.clave, (x) => ({ ...x, precio: e.target.value }))} />
                     ) : (
                       <Input value={calculado(i) ? fmtPesos(calculado(i)) : '…'} readOnly tabIndex={-1} aria-label={`Precio del mueble ${i + 1}`}
-                        title="Costo de materiales × 1,7" className="bg-muted text-right" />
+                        title={`Costo de materiales × ${String(RECARGO).replace(".", ",")}`} className="bg-muted text-right" />
                     )}
                   </label>
                 </div>

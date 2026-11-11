@@ -238,7 +238,7 @@ despiece y los materiales y una hoja apaisada por placa, con la lista de piezas 
   Al confirmar se descuentan el canto y los herrajes, el plan se guarda en
   `pedidos.materiales` y queda un **corte optimizado** pendiente por placa,
   optimizado con los retazos del depósito de salida.
-- Precio de cada mueble: costo de materiales × 1,7 (`muebles.Recargo`), redondeado a
+- Precio de cada mueble: costo de materiales × 2,7 (`muebles.Recargo`), redondeado a
   la centena. Solo un mueble sin piezas ni herrajes lleva precio a mano.
 - El optimizador suelto (Cortes) puede traer los retazos de una placa del stock o cargarlos a mano.
 
