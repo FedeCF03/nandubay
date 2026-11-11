@@ -3,8 +3,10 @@
 //
 //	nandubay-admin crear-carpinteria -nombre "Carpintería López" \
 //	    -admin-nombre "Juan López" -admin-email juan@ejemplo.com
+//	nandubay-admin cargar-demo -email juan@ejemplo.com
 //
 // La contraseña del admin se toma de ADMIN_CLAVE o se pide por consola.
+// cargar-demo carga datos de prueba en la carpintería de ese usuario.
 package main
 
 import (
@@ -21,8 +23,16 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "cargar-demo" {
+		if err := cargarDemo(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) < 2 || os.Args[1] != "crear-carpinteria" {
 		fmt.Fprintln(os.Stderr, "uso: nandubay-admin crear-carpinteria -nombre ... -admin-nombre ... -admin-email ...")
+		fmt.Fprintln(os.Stderr, "     nandubay-admin cargar-demo -email ...")
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet("crear-carpinteria", flag.ExitOnError)

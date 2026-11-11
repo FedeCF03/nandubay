@@ -30,6 +30,10 @@ MIGRAR=1 COOKIE_SEGURA=0 go run ./cmd/api
 go run ./cmd/nandubay-admin crear-carpinteria -nombre "Carpintería López" \
   -admin-nombre "Juan López" -admin-email juan@ejemplo.com
 
+# Opcional: datos de prueba (placas, stock en dos depósitos, retazos, clientes,
+# ventas, presupuestos de muebles y cortes) en la carpintería de ese usuario
+go run ./cmd/nandubay-admin cargar-demo -email juan@ejemplo.com
+
 # Frontend en http://localhost:5173 (redirige /api a la API)
 cd frontend
 npm install
