@@ -11,11 +11,15 @@ import (
 	"time"
 	_ "time/tzdata" // zona horaria de Argentina aunque la imagen no la traiga
 
+	"github.com/FedeCF03/nandubay/backend/internal/acceso"
 	"github.com/FedeCF03/nandubay/backend/internal/config"
-	"github.com/FedeCF03/nandubay/backend/internal/handler"
+	"github.com/FedeCF03/nandubay/backend/internal/cortes"
+	"github.com/FedeCF03/nandubay/backend/internal/db"
 	"github.com/FedeCF03/nandubay/backend/internal/seguridad"
-	"github.com/FedeCF03/nandubay/backend/internal/service"
-	"github.com/FedeCF03/nandubay/backend/internal/store"
+	"github.com/FedeCF03/nandubay/backend/internal/servidor"
+	"github.com/FedeCF03/nandubay/backend/internal/stock"
+	"github.com/FedeCF03/nandubay/backend/internal/ventas"
+	"github.com/FedeCF03/nandubay/backend/internal/web"
 )
 
 func main() {
@@ -33,7 +37,7 @@ func correr() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := store.Conectar(ctx, cfg.DatabaseURL)
+	pool, err := db.Conectar(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
@@ -41,26 +45,27 @@ func correr() error {
 
 	if cfg.Migrar {
 		slog.Info("aplicando migraciones")
-		if err := store.Migrar(pool); err != nil {
+		if err := db.Migrar(pool); err != nil {
 			return err
 		}
 	}
 
-	// Armado: store (Postgres) -> service -> handler.
-	casosAcceso := &service.ServicioAcceso{
-		Store:  &store.Acceso{DB: pool},
-		Hasher: &seguridad.Bcrypt{},
-		Tokens: seguridad.Tokens{},
-	}
-	servidor := &handler.Servidor{
-		Acceso:       casosAcceso,
-		Cortes:       service.ServicioCortes{Store: &store.Cortes{DB: pool}},
-		Stock:        &service.ServicioStock{Store: &store.Stock{DB: pool}},
-		Ventas:       &service.ServicioVentas{Store: &store.Ventas{DB: pool}},
-		Salud:        pool.Ping,
-		Limitador:    handler.NuevoLimitador(10, 15*time.Minute),
-		CORSOrigen:   cfg.CORSOrigen,
-		CookieSegura: cfg.CookieSegura,
+	// Armado de cada módulo: PostgresStore -> Servicio -> Handler.
+	servidor := &servidor.Servidor{
+		Acceso: &acceso.Handler{
+			Servicio: &acceso.Servicio{
+				Store:  &acceso.PostgresStore{DB: pool},
+				Hasher: &seguridad.Bcrypt{},
+				Tokens: seguridad.Tokens{},
+			},
+			Limitador:    web.NuevoLimitador(10, 15*time.Minute),
+			CookieSegura: cfg.CookieSegura,
+		},
+		Cortes:     &cortes.Handler{Servicio: &cortes.Servicio{Store: &cortes.PostgresStore{DB: pool}}},
+		Stock:      &stock.Handler{Servicio: &stock.Servicio{Store: &stock.PostgresStore{DB: pool}}},
+		Ventas:     &ventas.Handler{Servicio: &ventas.Servicio{Store: &ventas.PostgresStore{DB: pool}}},
+		Salud:      pool.Ping,
+		CORSOrigen: cfg.CORSOrigen,
 	}
 
 	srv := &http.Server{

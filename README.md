@@ -5,8 +5,8 @@ sus muebles, optimizador de cortes de melamina, usuarios con permisos y
 estadísticas de ventas. Pensado para varias carpinterías, cada una con sus
 datos separados y con varias sucursales.
 
-- `backend/`: API en Go (chi + pgx) con PostgreSQL, organizada con Repository Pattern
-  (handler → service → store, con los model aparte; los service usan interfaces Store). Migraciones en `backend/migrations` (goose).
+- `backend/`: API en Go (chi + pgx) con PostgreSQL, organizada en un paquete por módulo
+  (modelo, service, Store interface, PostgresStore y handler juntos). Migraciones en `backend/migrations` (goose).
 - `frontend/`: React + TypeScript + Vite, shadcn/ui (Tailwind + Radix), TanStack Query y wouter como router. Cada pantalla se carga por separado.
 - `deploy/` y `docker-compose.yml`: despliegue en un VPS con Docker.
 - `docs/diseno.md`: arquitectura, capas y modelo de datos.

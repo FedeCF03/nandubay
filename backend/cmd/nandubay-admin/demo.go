@@ -9,13 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FedeCF03/nandubay/backend/internal/model/acceso"
-	"github.com/FedeCF03/nandubay/backend/internal/model/cortes"
-	"github.com/FedeCF03/nandubay/backend/internal/model/muebles"
-	"github.com/FedeCF03/nandubay/backend/internal/model/stock"
-	"github.com/FedeCF03/nandubay/backend/internal/model/ventas"
-	"github.com/FedeCF03/nandubay/backend/internal/service"
-	"github.com/FedeCF03/nandubay/backend/internal/store"
+	"github.com/FedeCF03/nandubay/backend/internal/acceso"
+	"github.com/FedeCF03/nandubay/backend/internal/cortes"
+	"github.com/FedeCF03/nandubay/backend/internal/db"
+	"github.com/FedeCF03/nandubay/backend/internal/muebles"
+
+	"github.com/FedeCF03/nandubay/backend/internal/stock"
+
+	"github.com/FedeCF03/nandubay/backend/internal/ventas"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -32,12 +33,12 @@ func cargarDemo(args []string) error {
 		return errors.New("falta -email")
 	}
 	ctx := context.Background()
-	pool, err := store.Conectar(ctx, os.Getenv("DATABASE_URL"))
+	pool, err := db.Conectar(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	if err := store.Migrar(pool); err != nil {
+	if err := db.Migrar(pool); err != nil {
 		return fmt.Errorf("migraciones: %w", err)
 	}
 	u, err := usuarioDe(ctx, pool, *email)
@@ -46,9 +47,9 @@ func cargarDemo(args []string) error {
 	}
 	d := &demo{
 		ctx: ctx, u: u, pool: pool,
-		stock:  &service.ServicioStock{Store: &store.Stock{DB: pool}},
-		ventas: &service.ServicioVentas{Store: &store.Ventas{DB: pool}},
-		cortes: service.ServicioCortes{Store: &store.Cortes{DB: pool}},
+		stock:  &stock.Servicio{Store: &stock.PostgresStore{DB: pool}},
+		ventas: &ventas.Servicio{Store: &ventas.PostgresStore{DB: pool}},
+		cortes: &cortes.Servicio{Store: &cortes.PostgresStore{DB: pool}},
 		prod:   map[string]int64{},
 	}
 	if err := d.cargar(); err != nil {
@@ -59,7 +60,7 @@ func cargarDemo(args []string) error {
 }
 
 func usuarioDe(ctx context.Context, pool *pgxpool.Pool, email string) (*acceso.Usuario, error) {
-	repo := &store.Acceso{DB: pool}
+	repo := &acceso.PostgresStore{DB: pool}
 	c, err := repo.BuscarCuenta(ctx, strings.ToLower(strings.TrimSpace(email)))
 	if err != nil {
 		return nil, fmt.Errorf("no encontré el usuario %s: %w", email, err)
@@ -80,9 +81,9 @@ type demo struct {
 	ctx    context.Context
 	u      *acceso.Usuario
 	pool   *pgxpool.Pool
-	stock  *service.ServicioStock
-	ventas *service.ServicioVentas
-	cortes service.ServicioCortes
+	stock  *stock.Servicio
+	ventas *ventas.Servicio
+	cortes *cortes.Servicio
 	prod   map[string]int64 // sku → id
 	dep1   int64            // depósito principal
 	dep2   int64            // depósito de la otra sucursal
@@ -129,7 +130,7 @@ func (d *demo) depositos() error {
 		d.dep2 = ds[1].ID
 		return nil
 	}
-	return store.EnCarpinteria(d.ctx, d.pool, d.u.CarpinteriaID, func(tx pgx.Tx) error {
+	return db.EnCarpinteria(d.ctx, d.pool, d.u.CarpinteriaID, func(tx pgx.Tx) error {
 		var suc int64
 		if err := tx.QueryRow(d.ctx, `
 			INSERT INTO sucursales (carpinteria_id, nombre, direccion, telefono)
