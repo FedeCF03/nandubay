@@ -249,7 +249,7 @@ func TestLimiteDeIntentos(t *testing.T) {
 	_, svc, srv := preparar(t)
 	crear(t, svc, "A", "a@ejemplo.com")
 	c := nuevoCliente(t, srv)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		c.pedir("POST", "/api/v1/auth/login", map[string]string{"email": "a@ejemplo.com", "clave": "mal"})
 	}
 	if st, _ := c.pedir("POST", "/api/v1/auth/login", map[string]string{"email": "a@ejemplo.com", "clave": "clave-segura"}); st != http.StatusTooManyRequests {

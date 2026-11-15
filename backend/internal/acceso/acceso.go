@@ -9,7 +9,7 @@ package acceso
 
 import (
 	"errors"
-	"sort"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -42,7 +42,7 @@ func (p Permisos) Lista() []string {
 	for k := range p {
 		out = append(out, k)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 

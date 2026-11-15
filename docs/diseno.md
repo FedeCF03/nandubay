@@ -88,6 +88,14 @@ importen la base ni HTTP, que `postgres_*.go` no importe HTTP y que
 **Cómo sumar una funcionalidad**: crear la carpeta del módulo con esos cinco
 archivos y conectarla en `cmd/api/main.go` y en `servidor/servidor.go`.
 
+**Go moderno** (Go 1.27): usar los modismos nuevos y no los viejos. `for i := range n`
+en vez del `for` con contador, `min`/`max` en vez de `math.Min`/`Max` o `if`,
+`slices`/`maps` (`slices.Contains`, `slices.Sort`, `slices.SortFunc` con `cmp.Compare`/`cmp.Or`,
+`slices.Clone`) en vez de `sort` y bucles a mano, `errors.AsType[T](err)` en vez de
+`var x T; errors.As(err, &x)`, `new(valor)` en vez de helpers `ptr(v)`, `wg.Go(...)`
+en vez de `wg.Add(1)` + `go` + `defer wg.Done()`, `math/rand/v2` y `any`.
+Antes de cada PR, `go fix ./...` no tiene que proponer cambios.
+
 ### Otras decisiones
 
 - **Aislamiento entre carpinterías**: todas las tablas de datos tienen

@@ -1,7 +1,7 @@
 package cortes
 
 import (
-	"math/rand"
+	"math/rand/v2"
 	"testing"
 )
 
@@ -75,16 +75,16 @@ func TestUsaRetazosPrimero(t *testing.T) {
 }
 
 func TestSinSuperposicionesAleatorio(t *testing.T) {
-	r := rand.New(rand.NewSource(1))
-	for caso := 0; caso < 50; caso++ {
+	r := rand.New(rand.NewPCG(1, 1))
+	for caso := range 50 {
 		p := base()
-		p.Refilado = r.Intn(15)
-		p.TieneVeta = r.Intn(2) == 0
+		p.Refilado = r.IntN(15)
+		p.TieneVeta = r.IntN(2) == 0
 		var pz []Pieza
-		for i := 0; i < 1+r.Intn(25); i++ {
+		for i := range 1 + r.IntN(25) {
 			pz = append(pz, Pieza{
-				ID: string(rune('a' + i)), Etiqueta: "P", Largo: 50 + r.Intn(2000), Ancho: 50 + r.Intn(1200),
-				Cantidad: 1 + r.Intn(4), RespetaVeta: r.Intn(2) == 0,
+				ID: string(rune('a' + i)), Etiqueta: "P", Largo: 50 + r.IntN(2000), Ancho: 50 + r.IntN(1200),
+				Cantidad: 1 + r.IntN(4), RespetaVeta: r.IntN(2) == 0,
 			})
 		}
 		res, err := Optimizar(p, pz)

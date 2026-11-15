@@ -402,13 +402,11 @@ func TestVentasAisladasYNumeracion(t *testing.T) {
 	var wg sync.WaitGroup
 	numeros := make(chan float64, 10)
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if st, v := c.pedir("POST", "/api/v1/ventas", cuerpo); st == http.StatusCreated {
 				numeros <- v["numero"].(float64)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(numeros)

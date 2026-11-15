@@ -48,8 +48,8 @@ func TestValidar(t *testing.T) {
 	for i, f := range malos {
 		m := bajoMesada()
 		f(&m)
-		var ev ErrValidacion
-		if err := Validar([]Mueble{m}, productos); !errors.As(err, &ev) {
+		err := Validar([]Mueble{m}, productos)
+		if _, ok := errors.AsType[ErrValidacion](err); !ok {
 			t.Errorf("caso %d: esperaba error de validación, salió %v", i, err)
 		}
 	}

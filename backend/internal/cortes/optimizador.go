@@ -14,9 +14,10 @@
 package cortes
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -156,18 +157,18 @@ func Optimizar(p Parametros, piezas []Pieza) (Resultado, error) {
 		}
 	}
 	// Primero las piezas más grandes: mejora mucho el aprovechamiento.
-	sort.SliceStable(unidades, func(i, j int) bool {
-		a, b := unidades[i].pieza, unidades[j].pieza
-		if a.Largo*a.Ancho != b.Largo*b.Ancho {
-			return a.Largo*a.Ancho > b.Largo*b.Ancho
-		}
-		return max(a.Largo, a.Ancho) > max(b.Largo, b.Ancho)
+	slices.SortStableFunc(unidades, func(x, y unidad) int {
+		a, b := x.pieza, y.pieza
+		return cmp.Or(
+			cmp.Compare(b.Largo*b.Ancho, a.Largo*a.Ancho),
+			cmp.Compare(max(b.Largo, b.Ancho), max(a.Largo, a.Ancho)),
+		)
 	})
 
 	// Retazos de menor a mayor, para gastar primero los más chicos.
-	retazos := append([]Retazo(nil), p.Retazos...)
-	sort.SliceStable(retazos, func(i, j int) bool {
-		return retazos[i].Largo*retazos[i].Ancho < retazos[j].Largo*retazos[j].Ancho
+	retazos := slices.Clone(p.Retazos)
+	slices.SortStableFunc(retazos, func(a, b Retazo) int {
+		return cmp.Compare(a.Largo*a.Ancho, b.Largo*b.Ancho)
 	})
 	retazoUsado := make([]bool, len(retazos))
 

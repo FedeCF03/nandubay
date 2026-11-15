@@ -93,10 +93,11 @@ func (h *Handler) descartarRetazo(w http.ResponseWriter, r *http.Request) {
 // ResponderError traduce los errores de stock a códigos HTTP. Lo usan también
 // los otros módulos cuando el error viene del stock.
 func ResponderError(w http.ResponseWriter, r *http.Request, err error) {
-	var val ErrValidacion
-	switch {
-	case errors.As(err, &val):
+	if val, ok := errors.AsType[ErrValidacion](err); ok {
 		web.ResponderJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": val.Mensaje, "campo": val.Campo})
+		return
+	}
+	switch {
 	case errors.Is(err, ErrNoEncontrado):
 		web.ResponderError(w, http.StatusNotFound, "no se encontró el producto, el depósito o la categoría")
 	case errors.Is(err, ErrStockInsuficiente), errors.Is(err, ErrMismoDeposito),

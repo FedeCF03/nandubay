@@ -126,8 +126,7 @@ func (r *PostgresStore) CrearCarpinteria(ctx context.Context, a AltaCarpinteria)
 }
 
 func traducirError(err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" &&
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" &&
 		(pgErr.ConstraintName == "usuarios_email_unico" || pgErr.ConstraintName == "cuentas_login_pkey") {
 		return ErrEmailEnUso
 	}
