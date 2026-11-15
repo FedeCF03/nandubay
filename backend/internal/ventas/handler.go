@@ -49,13 +49,15 @@ func (h *Handler) Rutas(r chi.Router) {
 
 // responderErrorVentas traduce los errores de ventas a códigos HTTP.
 func responderErrorVentas(w http.ResponseWriter, r *http.Request, err error) {
-	var val ErrValidacion
-	var valMueble muebles.ErrValidacion
-	switch {
-	case errors.As(err, &val):
+	if val, ok := errors.AsType[ErrValidacion](err); ok {
 		web.ResponderJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": val.Mensaje, "campo": val.Campo})
-	case errors.As(err, &valMueble):
-		web.ResponderJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": valMueble.Mensaje, "campo": valMueble.Campo})
+		return
+	}
+	if val, ok := errors.AsType[muebles.ErrValidacion](err); ok {
+		web.ResponderJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": val.Mensaje, "campo": val.Campo})
+		return
+	}
+	switch {
 	case errors.Is(err, ErrNoEncontrado):
 		web.ResponderError(w, http.StatusNotFound, "no se encontró la venta o el cliente")
 	case errors.Is(err, ErrFotoInvalida):

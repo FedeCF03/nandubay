@@ -103,12 +103,15 @@ func argsProducto(p Producto) []any {
 }
 
 func errorProducto(err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "sku") {
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	if !ok {
+		return err
+	}
+	if pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, "sku") {
 		return ErrSkuEnUso
 	}
 	// La categoría no existe o es de otra carpintería.
-	if errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.ConstraintName == "productos_categoria_fk" {
+	if pgErr.Code == "23503" && pgErr.ConstraintName == "productos_categoria_fk" {
 		return ErrValidacion{Campo: "categoria_id", Mensaje: "la categoría elegida no existe"}
 	}
 	return err
@@ -297,8 +300,7 @@ func (r *PostgresStore) ListarMovimientos(ctx context.Context, carpinteriaID, pr
 }
 
 func errorCategoria(err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" {
 		return ErrCategoriaEnUso
 	}
 	return err

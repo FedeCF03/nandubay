@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -66,12 +67,7 @@ func VenceReserva(ahora time.Time) time.Time { return ahora.AddDate(0, MesesRese
 var EstadosProduccion = []Estado{Confirmado, EnCorte, EnArmado, Listo}
 
 func esProduccion(e Estado) bool {
-	for _, x := range EstadosProduccion {
-		if x == e {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(EstadosProduccion, e)
 }
 
 // Cliente de la carpintería.
@@ -169,7 +165,7 @@ type Linea struct {
 }
 
 func (l Linea) Subtotal() float64  { return Redondear(l.Cantidad * l.PrecioUnitario) }
-func (l Linea) Pendiente() float64 { return math.Max(0, l.Cantidad-l.Retirado) }
+func (l Linea) Pendiente() float64 { return max(0, l.Cantidad-l.Retirado) }
 
 // LineaNueva es lo que carga el vendedor. Para un producto, si no pone precio
 // se usa el de lista.
@@ -435,8 +431,6 @@ type RetiroNuevo struct {
 	Items      []RetiroItem
 }
 
-func ptr[T any](v T) *T { return &v }
-
 // Editar reemplaza las líneas y datos de un presupuesto.
 func (p Pedido) Editar(d DatosVenta, lineas []Linea) (Cambio, error) {
 	if p.Estado != Presupuesto {
@@ -465,11 +459,11 @@ func (p Pedido) Confirmar(depositoID int64, materiales []Consumo, ahora time.Tim
 	if len(p.Lineas) == 0 {
 		return Cambio{}, ErrSinLineas
 	}
-	c := Cambio{Estado: ptr(Confirmado), DepositoID: &depositoID}
+	c := Cambio{Estado: new(Confirmado), DepositoID: &depositoID}
 	if p.Tipo == Mostrador {
 		c.Disponible = p.pendientes()
 		if p.Pagado() > 0 {
-			c.ReservarHasta = ptr(VenceReserva(ahora))
+			c.ReservarHasta = new(VenceReserva(ahora))
 		}
 		return c, nil
 	}
@@ -515,7 +509,7 @@ func (p Pedido) RegistrarPago(pago Pago, ahora time.Time) (Cambio, error) {
 	if pago.Tipo != PagoDevolucion && p.Tipo == Mostrador && p.confirmada() && !p.Reservada(ahora) {
 		if pend := p.pendientes(); len(pend) > 0 {
 			c.Disponible = pend
-			c.ReservarHasta = ptr(VenceReserva(ahora))
+			c.ReservarHasta = new(VenceReserva(ahora))
 		}
 	}
 	return c, nil
@@ -607,7 +601,7 @@ func (p Pedido) Retirar(sucursalID int64, items []RetiroItem, nota string) (Camb
 		}
 	}
 	if (Pedido{Lineas: nuevas}).TodoRetirado() {
-		c.Estado = ptr(Entregado)
+		c.Estado = new(Entregado)
 	}
 	return c, nil
 }
@@ -626,7 +620,7 @@ func (p Pedido) Cancelar() (Cambio, error) {
 	if p.Pagado() > 0 {
 		return Cambio{}, ErrConPagos
 	}
-	c := Cambio{Estado: ptr(Cancelado)}
+	c := Cambio{Estado: new(Cancelado)}
 	if p.Tipo != Mostrador && p.confirmada() && p.DepositoID != nil {
 		// Se devuelve lo que salió del stock; si no está registrado (ventas
 		// viejas), lo que dicen los renglones.

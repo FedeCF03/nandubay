@@ -8,8 +8,6 @@ import (
 	"github.com/FedeCF03/nandubay/backend/internal/stock"
 )
 
-func f(v float64) *float64 { return &v }
-
 var productos = map[int64]stock.Producto{
 	1: {ID: 1, Tipo: stock.TipoPlaca, Nombre: "Melamina blanca 18 mm", PrecioVenta: 50000, Costo: 35000},
 	2: {ID: 2, Tipo: stock.TipoCanto, Nombre: "Canto blanco 22 mm", PrecioVenta: 300, Costo: 150},
@@ -34,8 +32,8 @@ func venta(t *testing.T, estado Estado, nuevas ...LineaNueva) Pedido {
 func TestArmarLineas(t *testing.T) {
 	ls, err := ArmarLineas([]LineaNueva{
 		{Tipo: LineaProducto, ProductoID: 1, Cantidad: 2},
-		{Tipo: LineaProducto, ProductoID: 2, Cantidad: 12.5, PrecioUnitario: f(280)},
-		{Tipo: LineaMueble, Descripcion: "Bajo mesada 1,20 m", AnchoMM: 1200, AltoMM: 850, ProfundidadMM: 600, Cantidad: 1, PrecioUnitario: f(450000)},
+		{Tipo: LineaProducto, ProductoID: 2, Cantidad: 12.5, PrecioUnitario: new(float64(280))},
+		{Tipo: LineaMueble, Descripcion: "Bajo mesada 1,20 m", AnchoMM: 1200, AltoMM: 850, ProfundidadMM: 600, Cantidad: 1, PrecioUnitario: new(float64(450000))},
 	}, productos)
 	if err != nil {
 		t.Fatal(err)
@@ -54,15 +52,14 @@ func TestArmarLineas(t *testing.T) {
 	malos := []LineaNueva{
 		{Tipo: LineaProducto, ProductoID: 99, Cantidad: 1},
 		{Tipo: LineaProducto, ProductoID: 1, Cantidad: 0},
-		{Tipo: LineaProducto, ProductoID: 1, Cantidad: 1.5},      // placas enteras
-		{Tipo: LineaMueble, Cantidad: 1, PrecioUnitario: f(10)},  // sin descripción
-		{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 1}, // sin precio
-		{Tipo: LineaProducto, ProductoID: 1, Cantidad: 1, PrecioUnitario: f(-1)},
+		{Tipo: LineaProducto, ProductoID: 1, Cantidad: 1.5},                // placas enteras
+		{Tipo: LineaMueble, Cantidad: 1, PrecioUnitario: new(float64(10))}, // sin descripción
+		{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 1},           // sin precio
+		{Tipo: LineaProducto, ProductoID: 1, Cantidad: 1, PrecioUnitario: new(float64(-1))},
 		{Tipo: "otra", Cantidad: 1},
 	}
 	for _, m := range malos {
-		var ev ErrValidacion
-		if _, err := ArmarLineas([]LineaNueva{m}, productos); !errors.As(err, &ev) {
+		if _, err := ArmarLineas([]LineaNueva{m}, productos); !esValidacion(err) {
 			t.Errorf("%+v: esperaba error de validación, salió %v", m, err)
 		}
 	}
@@ -245,7 +242,7 @@ func TestRetiroPorPartesEnLaSucursalDelDeposito(t *testing.T) {
 }
 
 func TestMueblesSeRetiranCuandoEstanListos(t *testing.T) {
-	p := venta(t, EnArmado, LineaNueva{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 2, PrecioUnitario: f(1000)})
+	p := venta(t, EnArmado, LineaNueva{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 2, PrecioUnitario: new(float64(1000))})
 	p.Pagos = []Pago{{Tipo: PagoPago, Monto: 2000}}
 	if _, err := p.Retirar(20, []RetiroItem{{LineaID: 1, Tipo: LineaMueble, Cantidad: 1}}, ""); !errors.Is(err, ErrMuebleNoListo) {
 		t.Errorf("en armado: %v", err)
@@ -316,7 +313,7 @@ func TestCliente(t *testing.T) {
 func TestMostradorSoloProductos(t *testing.T) {
 	ls, _ := ArmarLineas([]LineaNueva{
 		{Tipo: LineaProducto, ProductoID: 1, Cantidad: 1},
-		{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 1, PrecioUnitario: f(10)},
+		{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 1, PrecioUnitario: new(float64(10))},
 	}, productos)
 	if err := ControlarLineas(Mostrador, ls[:1]); err != nil {
 		t.Error(err)
@@ -338,7 +335,7 @@ func TestMostradorSoloProductos(t *testing.T) {
 
 func TestConfirmarMueblesDescuentaMateriales(t *testing.T) {
 	p := venta(t, Presupuesto,
-		LineaNueva{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 2, PrecioUnitario: f(1000)},
+		LineaNueva{Tipo: LineaMueble, Descripcion: "Alacena", Cantidad: 2, PrecioUnitario: new(float64(1000))},
 		LineaNueva{Tipo: LineaProducto, ProductoID: 3, Cantidad: 4},
 	)
 	p.Tipo = Muebles
@@ -354,10 +351,15 @@ func TestConfirmarMueblesDescuentaMateriales(t *testing.T) {
 		t.Errorf("operaciones = %v", got)
 	}
 	// Al cancelar vuelve lo que se descontó.
-	p.Estado, p.DepositoID = Confirmado, ptr(int64(300))
+	p.Estado, p.DepositoID = Confirmado, new(int64(300))
 	p.Consumido = []Consumo{{1, 2}, {3, 10}, {4, 12.5}}
 	c, err = p.Cancelar()
 	if err != nil || len(c.Operaciones) != 3 || c.Operaciones[2].Cantidad != 12.5 || c.Operaciones[2].Tipo != stock.MovDevolucion {
 		t.Errorf("cancelar: %v %+v", err, c.Operaciones)
 	}
+}
+
+func esValidacion(err error) bool {
+	_, ok := errors.AsType[ErrValidacion](err)
+	return ok
 }

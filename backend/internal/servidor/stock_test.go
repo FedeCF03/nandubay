@@ -181,17 +181,15 @@ func TestSalidasConcurrentes(t *testing.T) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	ok := 0
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 20 {
+		wg.Go(func() {
 			st, _ := c.pedir("POST", "/api/v1/stock/traspasos", map[string]any{"producto_id": pid, "deposito_id": origen, "destino_id": destino, "cantidad": 1})
 			if st == http.StatusNoContent {
 				mu.Lock()
 				ok++
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	p := listar(t, c)[0]["por_deposito"].(map[string]any)

@@ -13,7 +13,7 @@ datos separados y con varias sucursales.
 
 ## Desarrollo
 
-Requisitos: Go 1.26, Node 22 y un PostgreSQL 16 o superior.
+Requisitos: Go 1.27, Node 22 y un PostgreSQL 16 o superior.
 
 ```sh
 # Base de datos (una vez). El usuario NO debe ser superusuario, si no se saltea RLS.

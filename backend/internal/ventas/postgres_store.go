@@ -1,10 +1,11 @@
 package ventas
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -253,7 +254,7 @@ func cargarVenta(ctx context.Context, tx pgx.Tx, id int64) (Pedido, error) {
 	if err := rows.Err(); err != nil {
 		return p, err
 	}
-	sort.SliceStable(lineas, func(i, j int) bool { return lineas[i].orden < lineas[j].orden })
+	slices.SortStableFunc(lineas, func(a, b conOrden) int { return cmp.Compare(a.orden, b.orden) })
 	for _, x := range lineas {
 		p.Lineas = append(p.Lineas, x.l)
 	}
@@ -656,9 +657,8 @@ func (r *PostgresStore) Modificar(ctx context.Context, carpinteriaID, usuarioID,
 // orden de producto, para no trabarse con otra venta) así dos ventas no
 // reservan a la vez lo mismo.
 func controlarDisponible(ctx context.Context, tx pgx.Tx, carpinteriaID, pedidoID, depositoID int64, cs []Consumo) error {
-	orden := make([]Consumo, len(cs))
-	copy(orden, cs)
-	sort.Slice(orden, func(i, j int) bool { return orden[i].ProductoID < orden[j].ProductoID })
+	orden := slices.Clone(cs)
+	slices.SortFunc(orden, func(a, b Consumo) int { return cmp.Compare(a.ProductoID, b.ProductoID) })
 	for _, x := range orden {
 		if _, err := tx.Exec(ctx, `
 				INSERT INTO stock (carpinteria_id, producto_id, deposito_id, cantidad) VALUES ($1, $2, $3, 0)

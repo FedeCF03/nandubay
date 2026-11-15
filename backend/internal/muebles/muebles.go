@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -364,6 +364,6 @@ func claves[V any](m map[int64]V) []int64 {
 	for k := range m {
 		out = append(out, k)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }

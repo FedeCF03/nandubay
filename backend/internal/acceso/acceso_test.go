@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-func ptr(i int64) *int64 { return &i }
-
 var activas = []Sucursal{{ID: 1, Nombre: "Centro"}, {ID: 2, Nombre: "Norte"}, {ID: 3, Nombre: "Sur"}}
 
 func TestRolGlobalVeTodasLasSucursales(t *testing.T) {
@@ -17,19 +15,19 @@ func TestRolGlobalVeTodasLasSucursales(t *testing.T) {
 }
 
 func TestPermisosSoloEnSuSucursal(t *testing.T) {
-	asig := []Asignacion{{SucursalID: nil, Permiso: "pedidos.ver"}, {SucursalID: ptr(2), Permiso: "pedidos.editar"}}
-	_, _, p, _ := ResolverAcceso(activas, asig, ptr(1))
+	asig := []Asignacion{{SucursalID: nil, Permiso: "pedidos.ver"}, {SucursalID: new(int64(2)), Permiso: "pedidos.editar"}}
+	_, _, p, _ := ResolverAcceso(activas, asig, new(int64(1)))
 	if p.Tiene("pedidos.editar") || !p.Tiene("pedidos.ver") {
 		t.Fatalf("en Centro no debería poder editar: %v", p)
 	}
-	_, elegida, p, _ := ResolverAcceso(activas, asig, ptr(2))
+	_, elegida, p, _ := ResolverAcceso(activas, asig, new(int64(2)))
 	if elegida != 2 || !reflect.DeepEqual(p.Lista(), []string{"pedidos.editar", "pedidos.ver"}) {
 		t.Fatalf("en Norte debería editar: %d %v", elegida, p)
 	}
 }
 
 func TestPreferidaAjenaSeIgnora(t *testing.T) {
-	ss, elegida, _, _ := ResolverAcceso(activas, []Asignacion{{SucursalID: ptr(3), Permiso: "cortes.ver"}}, ptr(1))
+	ss, elegida, _, _ := ResolverAcceso(activas, []Asignacion{{SucursalID: new(int64(3)), Permiso: "cortes.ver"}}, new(int64(1)))
 	if len(ss) != 1 || elegida != 3 {
 		t.Fatalf("solo debería tener Sur: %v %d", ss, elegida)
 	}
